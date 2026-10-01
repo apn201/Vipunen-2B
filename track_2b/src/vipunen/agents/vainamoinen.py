@@ -9,7 +9,7 @@ separately by Ilmarinen (S4) and never gates.
 """
 from __future__ import annotations
 
-from vipunen.agents.base import ApertusStage
+from vipunen.agents.base import ApertusStage, retry_seed
 from vipunen.bus import StageResult, StageTask
 from vipunen.chain import render
 from vipunen.judge import REFUSAL
@@ -45,7 +45,7 @@ class Vainamoinen(ApertusStage):
         prompt = render(task.template, task.input_text)
         tokens_in = tokens_out = 0
         for tries in range(self.max_retries + 1):
-            seed = None if self.seed is None else self.seed + tries
+            seed = retry_seed(self.seed, task, tries)
             result = await self.call(prompt, seed)
             tokens_in += result.tokens_in
             tokens_out += result.tokens_out

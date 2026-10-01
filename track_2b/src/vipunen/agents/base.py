@@ -13,6 +13,11 @@ from vipunen.client import ApertusClient, ApertusError, ChatResult
 UKKO = "ukko"
 
 
+def retry_seed(seed: int | None, task: StageTask, tries: int = 0) -> int | None:
+    """A fresh sample for each placeholder retry, else the retry repeats the same text."""
+    return None if seed is None else seed + 100 * task.retry + tries
+
+
 class StageAgent:
     owner: str = ""
 
@@ -67,7 +72,7 @@ class ApertusStage(StageAgent):
         return result
 
     async def compose(self, task: StageTask) -> StageResult:
-        result = await self.call(render(task.template, task.input_text), self.seed)
+        result = await self.call(render(task.template, task.input_text), retry_seed(self.seed, task))
         return StageResult(seed_id=task.seed_id, run_id=task.run_id, attempt=task.attempt,
                            stage_id=task.stage_id, output_text=result.text,
                            tokens_in=result.tokens_in, tokens_out=result.tokens_out)

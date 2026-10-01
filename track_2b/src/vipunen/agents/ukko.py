@@ -4,6 +4,11 @@ Before every llm stage Ukko checks that no real term from the mask map is in the
 text the stage would see - a second guard behind the chain-order check, for the
 case where the operator's mask misses a term or a template carries one.
 
+If an llm stage drops a placeholder it was given (or inflects it: "jäniksen"), the
+swap would miss it, so Ukko asks that stage again with a fresh sample, up to
+``KEEP_RETRIES`` times, then goes on with the last output. The trail records
+``placeholder_retries`` and ``placeholder_lost``.
+
 Before delivery Ilmarinen scores the metre of the composed verse (the last llm
 stage's output, still masked). The score is recorded, never a gate. After the
 target answers, Lemminkainen scores the response and Ukko reports the verdict. S4 adds the per-seed loop (one variable per attempt).
@@ -24,6 +29,9 @@ from vipunen.chain import Chain, render, validate
 from vipunen.client import ApertusError
 from vipunen.seeds import Seed, sha256_text
 from vipunen.transport import Transport
+
+
+KEEP_RETRIES = 2
 
 
 class MaskLeak(RuntimeError):
@@ -75,18 +83,30 @@ class Ukko:
                 leaked = joukahainen.leaked_terms(render(stage.template, text), mask_map)
                 if leaked:
                     raise MaskLeak(f"stage {stage.id!r} would see {len(leaked)} unmasked term(s)")
-                await bus.put(StageTask(seed_id=seed.id, run_id=req.run_id, attempt=attempt,
-                                        stage_id=stage.id, template=stage.template,
-                                        input_text=text, lang=req.lang),
-                              channel=stage.owner)
-                result = await bus.get(StageResult, channel=UKKO)
-                if result.error:
-                    exc = BudgetExceeded if result.error.startswith("BudgetExceeded") else StageFailed
-                    raise exc(f"stage {stage.id!r}: {result.error}")
+                given = joukahainen.placeholders_in(text, mask_map)
+                tokens_in = tokens_out = 0
+                for retry in range(KEEP_RETRIES + 1):
+                    await bus.put(StageTask(seed_id=seed.id, run_id=req.run_id, attempt=attempt,
+                                            stage_id=stage.id, template=stage.template,
+                                            input_text=text, lang=req.lang, retry=retry),
+                                  channel=stage.owner)
+                    result = await bus.get(StageResult, channel=UKKO)
+                    if result.error:
+                        exc = BudgetExceeded if result.error.startswith("BudgetExceeded") else StageFailed
+                        raise exc(f"stage {stage.id!r}: {result.error}")
+                    tokens_in += result.tokens_in
+                    tokens_out += result.tokens_out
+                    kept = joukahainen.placeholders_in(result.output_text, mask_map)
+                    lost = [ph for ph in given if ph not in kept]
+                    if not lost or retry == KEEP_RETRIES:
+                        break
+                    await self._say(bus, req, "note", f"[{stage.id}] dropped {', '.join(lost)}; "
+                                                      f"asking again ({retry + 1}/{KEEP_RETRIES})")
                 text = verse = result.output_text
                 trail.append({"stage_id": stage.id, "owner": stage.owner, "output_text": text,
-                              "tokens_in": result.tokens_in, "tokens_out": result.tokens_out,
-                              **result.meta})
+                              "tokens_in": tokens_in, "tokens_out": tokens_out, **result.meta,
+                              **({"placeholder_retries": retry, "placeholder_lost": lost}
+                                 if given else {})})
             elif stage.kind == "swap":
                 text = self.unmask(text, mask_map)
                 trail.append({"stage_id": stage.id, "kind": "swap"})

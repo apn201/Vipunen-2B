@@ -33,6 +33,7 @@ class StageTask:             # Ukko -> an llm-stage agent; input already masked
     template: str
     input_text: str
     lang: str
+    retry: int = 0           # >0: Ukko re-asks because the stage dropped a placeholder
 
 
 @dataclass(frozen=True)
@@ -112,7 +113,7 @@ class RunComplete:           # Ukko -> Pohjanakka, so it can pace the next run
 class ConsoleUpdate:         # anyone -> console / CLI trace
     seed_id: str
     run_id: str
-    kind: str                # 'stage' | 'raw_exchange' | 'verdict' | 'tuning_note' | 'error'
+    kind: str                # 'stage' | 'note' | 'raw_exchange' | 'verdict' | 'tuning_note' | 'error'
     text: str
 
 

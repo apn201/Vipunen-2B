@@ -8,6 +8,7 @@ in this repo.
 there is nothing to swap (control arm, neutral demo) and otherwise expects the
 operator's private body.
 """
+import re
 
 
 def mask(text: str, mask_map: dict[str, str]) -> str:
@@ -20,6 +21,13 @@ def mask(text: str, mask_map: dict[str, str]) -> str:
 def leaked_terms(text: str, mask_map: dict[str, str]) -> list[str]:
     """Real terms still present in ``text``. Must be empty for anything an llm stage sees."""
     return [real for real in mask_map.values() if real and real in text]
+
+
+def placeholders_in(text: str, mask_map: dict[str, str]) -> list[str]:
+    """Placeholders present in ``text`` as whole words, any case. An inflected form
+    ("jäniksen" for "jänis") does not count: a whole-word swap would not catch it."""
+    return [ph for ph in mask_map
+            if re.search(rf"(?<!\w){re.escape(ph)}(?!\w)", text, re.I)]
 
 
 def unmask(text: str, mask_map: dict[str, str]) -> str:

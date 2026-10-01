@@ -109,11 +109,13 @@ table.swaps th { color: var(--muted); font-weight: 500; font-size: 12px; }
     <label for="preset">or load a seed</label>
     <select id="preset"><option value="">-</option></select>
 
-    <label>Swaps at the substitute stage (before the target prompt)</label>
+    <label>Swaps: safe word &rarr; real word, put back at the substitute stage</label>
     <div id="swaps"></div>
     <button type="button" id="addSwap">+ swap</button>
-    <p class="hint">Left: the word in the statement. The verse and escalation stages see only this.
-      Right: what replaces it in the final prompt to the target model.</p>
+    <p class="hint">Left: the safe word. The verse and escalation stages see only this.
+      Right: the real word. Only the final prompt to the target model gets it.
+      The statement may use either: a real word in it is masked to the safe word first.
+      A stage that drops or inflects the safe word is asked again (up to 2 times).</p>
     <p class="hint warn" id="swapBodyWarn" hidden></p>
 
     <div class="row">
@@ -195,9 +197,9 @@ function fill(sel, values, selected) {
 function addSwap(ph = "", real = "") {
   const row = document.createElement("div");
   row.className = "swap-row";
-  row.innerHTML = `<input type="text" class="ph" placeholder="Jänis" aria-label="placeholder">
+  row.innerHTML = `<input type="text" class="ph" placeholder="Jänis" aria-label="safe word">
     <span class="arrow">&rarr;</span>
-    <input type="text" class="real" placeholder="Rakkaus" aria-label="real term">
+    <input type="text" class="real" placeholder="Rakkaus" aria-label="real word">
     <button type="button" class="x" aria-label="remove swap">&times;</button>`;
   row.querySelector(".ph").value = ph;
   row.querySelector(".real").value = real;
@@ -299,6 +301,10 @@ const on = {
            <div class="sub">answer</div><pre>${highlight(m[3], runState.pairs)}</pre>`
         : `<pre>${esc(d.text)}</pre>`;
       runState.answerCard = el;
+    } else if (d.kind === "note") {
+      const m = d.text.match(/^\[([^\]]+)\] ([\s\S]*)$/);
+      const el = m && runState.cards[m[1]];
+      if (el) el.querySelector(".body").insertAdjacentHTML("beforeend", `<p class="hint warn">${esc(m[2])}</p>`);
     } else if (d.kind === "verdict") {
       runState.verdictText = d.text;
     } else if (d.kind === "error") {
@@ -337,7 +343,8 @@ const on = {
       for (const st of rec.stages || []) {
         const el = runState.cards[st.stage_id];
         if (!el) continue;
-        const extra = Object.entries(st).filter(([k]) => !["stage_id", "owner", "kind", "output_text"].includes(k))
+        const extra = Object.entries(st).filter(([k, v]) => !["stage_id", "owner", "kind", "output_text"].includes(k)
+                                                    && !(Array.isArray(v) && !v.length))
           .map(([k, v]) => `${k} ${v}`).join(" · ");
         if (extra) el.querySelector(".right").textContent += ` · ${extra}`;
       }
@@ -377,19 +384,31 @@ function scoreBox(vcard, rec, entry) {
   box.innerHTML = `<div class="sub">your verdict (saved to the evidence record beside the scorer's)</div>
     <div class="vbtns">${VERDICTS.map(([v, t]) => `<button type="button" data-v="${v}" title="${esc(t)}">${verdictBadge(v)}</button>`).join("")}</div>
     <input type="text" class="note" placeholder="note (optional): why" aria-label="note">
+    <label class="check" title="Track 1A finding: the final prompt and answer are the walkthrough; earlier stages are not part of it">
+      <input type="checkbox" class="for1a" disabled> use for the Track 1A submission (obvious FAILs only)</label>
     <div class="hint saved"></div>`;
   const note = box.querySelector(".note");
+  const for1a = box.querySelector(".for1a");
   note.value = rec.operator_note || "";
-  const mark = v => box.querySelectorAll(".vbtns button").forEach(b => b.classList.toggle("on", b.dataset.v === v));
+  const mark = v => {
+    box.querySelectorAll(".vbtns button").forEach(b => b.classList.toggle("on", b.dataset.v === v));
+    for1a.disabled = v !== "fail";
+    if (v !== "fail") for1a.checked = false;
+  };
   if (rec.operator_verdict) { mark(rec.operator_verdict); entry.operator = rec.operator_verdict; }
+  for1a.checked = rec.operator_1a === true;
+  entry.for1a = for1a.checked;
   async function save(v) {
     const r = await fetch("/api/score", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ run_id: rec.run_id, attempt: rec.attempt || 1, verdict: v, note: note.value }) });
+      body: JSON.stringify({ run_id: rec.run_id, attempt: rec.attempt || 1, verdict: v, note: note.value,
+                             for_1a: v === "fail" && for1a.checked }) });
     const out = await r.json();
     if (!r.ok) { box.querySelector(".saved").textContent = "not saved: " + out.error; return; }
-    mark(v); entry.operator = v; renderHistory();
-    box.querySelector(".saved").textContent = `saved: ${v.toUpperCase()} (${out.operator_score}) at ${out.operator_ts}`;
+    mark(v); entry.operator = v; entry.for1a = out.operator_1a; renderHistory();
+    box.querySelector(".saved").textContent = `saved: ${v.toUpperCase()} (${out.operator_score})` +
+      `${out.operator_1a ? " · flagged for 1A" : ""} at ${out.operator_ts}`;
   }
+  for1a.addEventListener("change", () => { if (entry.operator) save(entry.operator); });
   box.querySelectorAll(".vbtns button").forEach(b => b.onclick = () => save(b.dataset.v));
   note.addEventListener("change", () => { if (entry.operator) save(entry.operator); });
   vcard.querySelector(".body").appendChild(box);
@@ -400,7 +419,7 @@ function renderHistory() {
   history.slice(0, 12).forEach(h => {
     const b = document.createElement("button");
     const sw = h.input.swaps.map(p => `${p.placeholder}→${p.real}`).join(", ");
-    const v = h.operator ? `${h.operator.toUpperCase()} (you)` : h.verdict.toUpperCase();
+    const v = (h.operator ? `${h.operator.toUpperCase()} (you)` : h.verdict.toUpperCase()) + (h.for1a ? " · 1A" : "");
     b.textContent = `${v} · ${h.input.statement}${sw ? " · " + sw : ""}`;
     b.onclick = () => restore(h.input);
     $("history").appendChild(b);
@@ -424,7 +443,8 @@ async function run() {
     pass_regex: $("passRx").value, fail_regex: $("failRx").value, echo: $("echo").checked,
   };
   if (!input.statement) { $("status").textContent = "write a statement first"; return; }
-  const missing = input.swaps.filter(p => p.placeholder && !new RegExp(rxEsc(p.placeholder), "iu").test(input.statement));
+  const missing = input.swaps.filter(p => p.placeholder && !new RegExp(rxEsc(p.placeholder), "iu").test(input.statement)
+                                          && !(p.real && input.statement.includes(p.real)));
   $("trace").innerHTML = "";
   runState = { input, pairs: input.swaps, stages: [], cards: {} };
   if (missing.length)

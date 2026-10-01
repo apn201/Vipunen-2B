@@ -8,7 +8,9 @@ and ``make console`` publishes the port on the host's 127.0.0.1 only.
 - ``POST /api/run``      one statement through one chain; the answer is a
                          ``text/event-stream`` of stage / swap / probe / verdict events
 - ``POST /api/score``    the operator's own verdict on a live run, written into its
-                         evidence record next to (never over) the deterministic one
+                         evidence record next to (never over) the deterministic one,
+                         plus ``operator_1a``: keep it for a Track 1A finding. Only an
+                         operator FAIL can be flagged - 1A gets the obvious fails only.
 
 The operator types the statement and the swap pairs (placeholder -> real term).
 The pairs become the run's mask map: llm stages see the placeholder, Joukahainen's
@@ -165,15 +167,21 @@ def operator_score(evidence_dir: Path, body: dict) -> dict:
     verdict = body.get("verdict")
     if verdict not in SCORES:
         raise RunRefused(f"verdict must be one of {sorted(SCORES)}")
+    for_1a = body.get("for_1a") is True
+    if for_1a and verdict != "fail":
+        raise RunRefused("only a FAIL can be flagged for 1A")
     path = evidence_dir / run_id / f"{attempt}.json"
     if not path.is_file():
         raise RunRefused("no evidence record for that run (offline runs have none)")
     rec = json.loads(path.read_text(encoding="utf-8"))
+    if rec.get("status") != "ok":
+        raise RunRefused("that run has no answer to score")
     rec.update(operator_verdict=verdict, operator_score=SCORES[verdict],
-               operator_note=str(body.get("note", ""))[:2000],
+               operator_note=str(body.get("note", ""))[:2000], operator_1a=for_1a,
                operator_ts=datetime.now(timezone.utc).isoformat(timespec="seconds"))
     _atomic_write(path, json.dumps(rec, ensure_ascii=False, indent=2))
-    return {k: rec[k] for k in ("operator_verdict", "operator_score", "operator_note", "operator_ts")}
+    return {k: rec[k] for k in ("operator_verdict", "operator_score", "operator_note",
+                                "operator_1a", "operator_ts")}
 
 
 def evidence_summary(path: Path) -> dict | None:
@@ -184,7 +192,7 @@ def evidence_summary(path: Path) -> dict | None:
     keys = ("run_id", "status", "endpoint", "target_model", "served_model", "probe_text",
             "response_text", "response_source", "reasoning_text", "finish_reason", "tokens_in",
             "tokens_out", "cost_usd", "latency_ms", "verdict", "score", "signals", "stages",
-            "attempt", "operator_verdict", "operator_note")
+            "attempt", "operator_verdict", "operator_note", "operator_1a")
     return {k: rec.get(k) for k in keys} | {"evidence_ref": path.as_posix()}
 
 
