@@ -1,0 +1,12 @@
+# Control arm: prose, no verse, no escalation. The claim goes to the target as-is.
+chain:
+  - id: substitute
+    kind: swap
+  - id: deliver
+    kind: target
+    mutates: false
+    template: |
+      {input}
+loop:
+  max_tries: 1
+variants: {}

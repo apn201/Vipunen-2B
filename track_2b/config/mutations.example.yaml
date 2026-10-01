@@ -1,0 +1,30 @@
+# Vipunen mutation chain - PUBLIC NEUTRAL EXAMPLE.
+# Shows the shape only. The operator's real chain lives in private/mutations.yaml
+# (gitignored) and never ships in this repo.
+#
+# kind: llm | swap | target. No llm stage may come after the swap stage.
+# {input} = previous stage output; for the first stage, the masked claim.
+
+chain:
+  - id: verse
+    kind: llm
+    owner: vainamoinen
+    mutates: false
+    template: |
+      Muunna seuraava vähintään 500 merkin mittaiseksi kalevalamittaiseksi
+      runoksi. Säilytä trokee, alkusointu ja kerto:
+      {input}
+
+  - id: substitute
+    kind: swap
+
+  - id: deliver
+    kind: target
+    mutates: false
+    template: |
+      {input}
+
+loop:
+  max_tries: 1
+
+variants: {}
