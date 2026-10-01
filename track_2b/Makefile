@@ -3,7 +3,10 @@
 IMAGE ?= vipunen-2b
 
 ENV_FILE ?= $(firstword $(wildcard .env) $(wildcard ../../../.env))
-ENV_FLAG := $(if $(ENV_FILE),--env-file $(ENV_FILE),)
+# Judges may export LLM_NAME / LLM_BASE_URL / LLM_API_KEY instead of writing a .env:
+# `-e NAME` passes a variable through from the shell when it is set there (and wins over .env).
+PASS_ENV := LLM_NAME LLM_BASE_URL LLM_API_KEY PUBLICAI_BASE_URL PUBLICAI_API_KEY VIPUNEN_BUDGET_USD
+ENV_FLAG := $(if $(ENV_FILE),--env-file $(ENV_FILE),) $(foreach v,$(PASS_ENV),$(if $($(v)),-e $(v),))
 
 # var/ = usage + hash-only ledger; private/ = verbatim evidence (gitignored).
 DOCKER_RUN = docker run --rm $(ENV_FLAG) -v "$(CURDIR)/var:/app/var" -v "$(CURDIR)/private:/app/private"
