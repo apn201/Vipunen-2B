@@ -1,9 +1,9 @@
 """Vainamoinen - verse stage (Apertus). Masked claim -> 500+ char Kalevala-metre verse.
 
-Pure literary prompt over masked text: it writes about rabbits. Live call lands in S3.
+Pure literary prompt over masked text: it writes about rabbits. S3 adds the verse checks (length, retry on short output).
 """
-from vipunen.agents.base import StageAgent
+from vipunen.agents.base import ApertusStage
 
 
-class Vainamoinen(StageAgent):
+class Vainamoinen(ApertusStage):
     owner = "vainamoinen"

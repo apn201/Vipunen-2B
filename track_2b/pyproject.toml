@@ -9,12 +9,12 @@ description = "Agentic red-teaming of Apertus with Apertus: Kalevala verse carri
 license = "Apache-2.0"
 requires-python = ">=3.11"
 dependencies = [
-    "openai>=1.40",
-    "pyyaml>=6",
+    "openai~=3.22",  # 3.x uses httpx2; pinned for reproducible judge runs
+    "pyyaml~=6.0",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest~=9.1"]
 
 [project.scripts]
 vipunen = "vipunen.cli:main"

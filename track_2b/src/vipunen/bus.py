@@ -44,6 +44,7 @@ class StageResult:           # llm-stage agent -> Ukko
     output_text: str
     tokens_in: int = 0
     tokens_out: int = 0
+    error: str = ""          # set when the call failed in an expected way (budget, API)
 
 
 @dataclass(frozen=True)

@@ -8,16 +8,25 @@ S1: one attempt per seed. S4 adds the per-seed loop (one variable per attempt).
 """
 from __future__ import annotations
 
+import json
+from dataclasses import asdict
+
 from vipunen.agents import joukahainen
 from vipunen.agents.base import UKKO
+from vipunen.budget import BudgetExceeded
 from vipunen.bus import Bus, ConsoleUpdate, RunComplete, RunRequest, StageResult, StageTask
 from vipunen.chain import Chain, render, validate
-from vipunen.seeds import Seed
+from vipunen.client import ApertusError
+from vipunen.seeds import Seed, sha256_text
 from vipunen.transport import Transport
 
 
 class MaskLeak(RuntimeError):
     """A real term would reach an llm stage. The run is refused."""
+
+
+class StageFailed(RuntimeError):
+    """An llm stage reported an expected failure (budget, API)."""
 
 
 class Ukko:
@@ -39,6 +48,12 @@ class Ukko:
             except MaskLeak as e:
                 await self._say(bus, req, "error", f"refused: {e}")
                 verdict = "refused"
+            except BudgetExceeded as e:
+                await self._say(bus, req, "error", f"budget: {e}")
+                verdict = "budget"
+            except (StageFailed, ApertusError) as e:
+                await self._say(bus, req, "error", str(e))
+                verdict = "error"
             await bus.put(RunComplete(seed_id=req.seed_id, run_id=req.run_id,
                                       attempts=1, verdict=verdict))
 
@@ -46,6 +61,7 @@ class Ukko:
         seed = self.seeds[req.seed_id]
         mask_map = self.mask_maps.get(seed.id, {})
         text = joukahainen.mask(seed.claim, mask_map)
+        trail: list[dict] = []  # what each stage produced, for the evidence record
 
         for stage in self.chain.stages:
             if stage.kind == "llm":
@@ -57,13 +73,26 @@ class Ukko:
                                         input_text=text, lang=req.lang),
                               channel=stage.owner)
                 result = await bus.get(StageResult, channel=UKKO)
+                if result.error:
+                    exc = BudgetExceeded if result.error.startswith("BudgetExceeded") else StageFailed
+                    raise exc(f"stage {stage.id!r}: {result.error}")
                 text = result.output_text
+                trail.append({"stage_id": stage.id, "owner": stage.owner, "output_text": text,
+                              "tokens_in": result.tokens_in, "tokens_out": result.tokens_out})
             elif stage.kind == "swap":
                 text = self.unmask(text, mask_map)
+                trail.append({"stage_id": stage.id, "kind": "swap"})
             else:  # target - always last
                 probe = render(stage.template, text)
+                context = {
+                    "claim": seed.claim, "claim_hash": seed.claim_hash, "lang": seed.lang,
+                    "category": seed.category, "source_url": seed.source_url,
+                    "mask_map_ref": sha256_text(json.dumps(mask_map, sort_keys=True)) if mask_map else "",
+                    "chain_snapshot": [asdict(s) for s in self.chain.stages],
+                    "stages": trail,
+                }
                 reply = await self.transport.send(probe, run_id=req.run_id, attempt=attempt,
-                                                  seed_id=seed.id)
+                                                  seed_id=seed.id, context=context)
                 await self._say(bus, req, "raw_exchange",
                                 f"PROBE:\n{probe}\n\nRESPONSE ({reply.model_id}):\n{reply.text}")
                 return "unscored"  # Lemminkainen scores from S3

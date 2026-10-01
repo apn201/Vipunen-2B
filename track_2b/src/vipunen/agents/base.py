@@ -1,12 +1,14 @@
-"""Base class for llm-stage agents (Vainamoinen, Louhi).
+"""Base classes for llm-stage agents (Vainamoinen, Louhi).
 
 A stage agent reads ``StageTask`` on its own channel, composes the stage output
 from masked input, and answers Ukko with a ``StageResult``.
 """
 from __future__ import annotations
 
+from vipunen.budget import Budget, BudgetExceeded, estimate_tokens
 from vipunen.bus import Bus, StageResult, StageTask
 from vipunen.chain import render
+from vipunen.client import ApertusClient, ApertusError
 
 UKKO = "ukko"
 
@@ -20,7 +22,13 @@ class StageAgent:
     async def run(self, bus: Bus) -> None:
         while True:
             task = await bus.get(StageTask, channel=self.owner)
-            await bus.put(await self.compose(task), channel=UKKO)
+            try:
+                result = await self.compose(task)
+            except (BudgetExceeded, ApertusError) as e:  # expected failures go back to Ukko
+                result = StageResult(seed_id=task.seed_id, run_id=task.run_id, attempt=task.attempt,
+                                     stage_id=task.stage_id, output_text="",
+                                     error=f"{type(e).__name__}: {e}")
+            await bus.put(result, channel=UKKO)
 
 
 class EchoStage(StageAgent):
@@ -33,3 +41,30 @@ class EchoStage(StageAgent):
         return StageResult(seed_id=task.seed_id, run_id=task.run_id, attempt=task.attempt,
                            stage_id=task.stage_id,
                            output_text=render(task.template, task.input_text))
+
+
+class ApertusStage(StageAgent):
+    """An llm stage on Apertus: the rendered template is the whole user message.
+
+    Sees only masked text - Ukko checks that before the task is sent.
+    """
+
+    def __init__(self, client: ApertusClient, budget: Budget, *, model: str,
+                 max_tokens: int, temperature: float, seed: int | None) -> None:
+        self.client = client
+        self.budget = budget
+        self.model = model
+        self.max_tokens = max_tokens
+        self.temperature = temperature
+        self.seed = seed
+
+    async def compose(self, task: StageTask) -> StageResult:
+        prompt = render(task.template, task.input_text)
+        self.budget.authorize(self.model, estimate_tokens(prompt), self.max_tokens)
+        result = await self.client.chat([{"role": "user", "content": prompt}], model=self.model,
+                                        max_tokens=self.max_tokens, temperature=self.temperature,
+                                        seed=self.seed)
+        self.budget.record(self.model, result.usage)
+        return StageResult(seed_id=task.seed_id, run_id=task.run_id, attempt=task.attempt,
+                           stage_id=task.stage_id, output_text=result.text,
+                           tokens_in=result.tokens_in, tokens_out=result.tokens_out)

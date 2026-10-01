@@ -9,4 +9,4 @@ COPY tests ./tests
 COPY tools ./tools
 RUN pip install --no-cache-dir -e ".[dev]"
 EXPOSE 8000
-CMD ["vipunen", "run", "--demo", "--echo"]
+CMD ["vipunen", "run", "--demo"]

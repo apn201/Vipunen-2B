@@ -30,6 +30,8 @@ build/
 # Operator chain, mask maps, verbatim evidence: never in this repo.
 private/
 var/evidence/
+var/usage.json
+var/KILL
 *.verbatim.json
 .pytest_cache/
 *.egg-info/
