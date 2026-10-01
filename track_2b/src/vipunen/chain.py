@@ -42,6 +42,7 @@ class Chain:
     max_tries: int = 1
     variants: dict[str, tuple[str, ...]] = field(default_factory=dict)
     name: str = ""
+    stop_on: tuple[str, ...] = ("fail",)   # verdicts that end the per-seed loop early
 
     def __post_init__(self) -> None:
         validate(self)
@@ -104,6 +105,11 @@ def validate(chain: Chain) -> None:
     if not isinstance(chain.max_tries, int) or isinstance(chain.max_tries, bool) or chain.max_tries < 1:
         raise ChainError(f"loop.max_tries must be a positive integer, got {chain.max_tries!r}")
 
+    from vipunen.judge import SCORES  # verdict labels
+    bad = [v for v in chain.stop_on if v not in SCORES]
+    if bad:
+        raise ChainError(f"loop.stop_on has unknown verdicts {bad}; use {sorted(SCORES)}")
+
     by_id = {s.id: s for s in stages}
     for stage_id, templates in chain.variants.items():
         if stage_id not in by_id:
@@ -115,28 +121,50 @@ def validate(chain: Chain) -> None:
                 raise ChainError(f"variant for {stage_id!r} must contain {INPUT}")
 
 
+def _ref(data: dict[str, Any], stage_id: str, key: str, want: type) -> Any:
+    if key not in data:
+        raise ChainError(f"stage {stage_id!r}: reference {key!r} not found at top level")
+    value = data[key]
+    if value is None and want is list:
+        return []
+    if not isinstance(value, want):
+        raise ChainError(f"stage {stage_id!r}: {key!r} must be a {want.__name__}")
+    return value
+
+
 def parse_chain(data: dict[str, Any], name: str = "") -> Chain:
+    """Templates and variants may sit inline, or at top level referenced by
+    ``template_ref`` / ``variants_ref`` (keeps long operator templates in one place)."""
     if not isinstance(data, dict) or not isinstance(data.get("chain"), list):
         raise ChainError("config must be a mapping with a 'chain' list")
     stages = []
+    variants = {k: list(v or ()) for k, v in (data.get("variants") or {}).items()}
     for raw in data["chain"]:
         if not isinstance(raw, dict):
             raise ChainError(f"stage must be a mapping, got {raw!r}")
-        unknown = set(raw) - {"id", "kind", "owner", "template", "mutates"}
+        stage_id = str(raw.get("id", ""))
+        unknown = set(raw) - {"id", "kind", "owner", "template", "mutates", "template_ref", "variants_ref"}
         if unknown:
-            raise ChainError(f"stage {raw.get('id')!r}: unknown keys {sorted(unknown)}")
+            raise ChainError(f"stage {stage_id!r}: unknown keys {sorted(unknown)}")
+        template = raw.get("template")
+        if "template_ref" in raw:
+            if template is not None:
+                raise ChainError(f"stage {stage_id!r}: give template or template_ref, not both")
+            template = _ref(data, stage_id, raw["template_ref"], str)
+        if "variants_ref" in raw:
+            variants[stage_id] = variants.get(stage_id, []) + _ref(data, stage_id, raw["variants_ref"], list)
         stages.append(Stage(
-            id=str(raw.get("id", "")),
+            id=stage_id,
             kind=raw.get("kind"),
             owner=raw.get("owner"),
-            template=raw.get("template"),
+            template=template,
             mutates=bool(raw.get("mutates", False)),
         ))
     loop = data.get("loop") or {}
-    variants = {k: tuple(v or ()) for k, v in (data.get("variants") or {}).items()}
-    variants = {k: v for k, v in variants.items() if v}
-    return Chain(stages=tuple(stages), max_tries=loop.get("max_tries", 1), variants=variants,
-                 name=name)
+    stop_on = loop.get("stop_on", ["fail"])
+    return Chain(stages=tuple(stages), max_tries=loop.get("max_tries", 1),
+                 variants={k: tuple(v) for k, v in variants.items() if v}, name=name,
+                 stop_on=tuple(stop_on) if isinstance(stop_on, list) else (stop_on,))
 
 
 def load_chain(path: str | Path) -> Chain:
