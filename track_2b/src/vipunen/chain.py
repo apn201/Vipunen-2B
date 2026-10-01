@@ -41,6 +41,7 @@ class Chain:
     stages: tuple[Stage, ...]
     max_tries: int = 1
     variants: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    name: str = ""
 
     def __post_init__(self) -> None:
         validate(self)
@@ -114,7 +115,7 @@ def validate(chain: Chain) -> None:
                 raise ChainError(f"variant for {stage_id!r} must contain {INPUT}")
 
 
-def parse_chain(data: dict[str, Any]) -> Chain:
+def parse_chain(data: dict[str, Any], name: str = "") -> Chain:
     if not isinstance(data, dict) or not isinstance(data.get("chain"), list):
         raise ChainError("config must be a mapping with a 'chain' list")
     stages = []
@@ -134,9 +135,10 @@ def parse_chain(data: dict[str, Any]) -> Chain:
     loop = data.get("loop") or {}
     variants = {k: tuple(v or ()) for k, v in (data.get("variants") or {}).items()}
     variants = {k: v for k, v in variants.items() if v}
-    return Chain(stages=tuple(stages), max_tries=loop.get("max_tries", 1), variants=variants)
+    return Chain(stages=tuple(stages), max_tries=loop.get("max_tries", 1), variants=variants,
+                 name=name)
 
 
 def load_chain(path: str | Path) -> Chain:
     with open(path, encoding="utf-8") as f:
-        return parse_chain(yaml.safe_load(f))
+        return parse_chain(yaml.safe_load(f), name=Path(path).stem)

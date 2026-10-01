@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from vipunen.agents.base import EchoStage
@@ -19,12 +20,14 @@ from vipunen.bus import ConsoleUpdate
 from vipunen.chain import Chain, ChainError, LLM_OWNERS, load_chain
 from vipunen.client import ApertusClient, ApertusError
 from vipunen.config import MODELS, Settings, SettingsError, load_settings, require_key
+from vipunen import report
 from vipunen.pipeline import run_batch
 from vipunen.seeds import Seed, load_seeds
 from vipunen.transport import EchoTransport, LiveTransport
 
 DEMO_CHAINS = ("config/mutations.example.yaml", "config/passthrough.yaml")
 DEMO_SEEDS = "data/seeds/demo.yaml"
+DEFAULT_REPORT_SEEDS = ["data/seeds/history_culture.yaml"]
 PING = "Mikä on Suomen pääkaupunki? Vastaa yhdellä sanalla."
 
 
@@ -60,63 +63,96 @@ def cmd_run(args: argparse.Namespace) -> int:
     except ChainError as e:
         print(f"REFUSED: {e}", file=sys.stderr)
         return 1
-    seeds = load_seeds(args.seeds or DEMO_SEEDS)
+    seeds = [s for path in (args.seeds or [DEMO_SEEDS]) for s in load_seeds(path)]
     if args.limit:
         seeds = seeds[:args.limit]
+    models = args.model or [None]
 
-    settings = load_settings(endpoint=args.endpoint, target_model=args.model)
     if args.estimate:
-        calls, usd = estimate(chains, seeds, settings)
-        budget = Budget.from_settings(settings)
-        left = settings.budget_usd - budget.usage.spend_usd
-        print(f"estimate: {len(seeds)} seeds x {len(chains)} chain(s): up to {calls} calls, "
-              f"<= {usd:.4f} USD worst case (target {settings.target_model}, "
-              f"stages {settings.stage_model}). Budget left: {left:.4f} USD.")
+        calls = usd = 0
+        for model in models:
+            s = load_settings(endpoint=args.endpoint, target_model=model)
+            c, u = estimate(chains, seeds, s)
+            calls, usd = calls + c, usd + u
+        budget = Budget.from_settings(s)
+        left = s.budget_usd - budget.usage.spend_usd
+        print(f"estimate: {len(seeds)} seeds x {len(chains)} chain(s) x {len(models)} model(s): "
+              f"up to {calls} calls, <= {usd:.4f} USD worst case. Budget left: {left:.4f} USD.")
         return 0 if usd <= left else 1
 
-    return asyncio.run(_run(args, chains, seeds, settings))
+    return asyncio.run(_run(args, chains, seeds, models))
+
+
+PIPELINE_FAILURES = ("mask-leak", "error", "budget")
 
 
 async def _run(args: argparse.Namespace, chains: list[tuple[str, Chain]], seeds: list[Seed],
-               settings: Settings) -> int:
-    """All chains in ONE event loop: the HTTP client's connection pool is bound to it."""
-    client = None
-    if args.echo:
-        transport, agents, budget = EchoTransport(), [EchoStage(o) for o in LLM_OWNERS], None
-    else:
-        require_key(settings)
-        budget = Budget.from_settings(settings)
-        client = ApertusClient(settings.endpoint, timeout_s=settings.timeout_s)
-        transport = LiveTransport(client, budget, model=settings.target_model,
-                                  evidence_dir=settings.evidence_dir,
-                                  max_tokens=settings.target_max_tokens,
-                                  temperature=settings.target_temperature, seed=settings.seed)
-        stage_kw = dict(model=settings.stage_model, max_tokens=settings.stage_max_tokens,
-                        temperature=settings.stage_temperature, seed=settings.seed)
-        agents = [Vainamoinen(client, budget, **stage_kw), Louhi(client, budget, **stage_kw)]
-        print(f"endpoint {settings.endpoint.name} ({settings.endpoint.base_url}), "
-              f"target {settings.target_model}, budget {budget.status()}")
-
+               models: list[str | None]) -> int:
+    """Everything in ONE event loop: the HTTP clients' connection pools are bound to it."""
+    batch_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    clients: dict[str, ApertusClient] = {}
+    budget = None
     failed = False
+    print(f"batch {batch_id}")
     try:
-        for path, chain in chains:
-            print(f"=== chain {Path(path).name}: {' -> '.join(s.id for s in chain.stages)}")
-            results = await run_batch(
-                chain, seeds, transport=transport, stage_agents=agents,
-                target_model=transport.model_id, on_update=print_update,
-                gate=budget.gate if budget else (lambda: None))
-            for r in results:
-                print(f"{r.seed_id}: {r.verdict}")
-                failed |= r.verdict in ("refused", "error", "budget")
-            if len(results) < len(seeds):
-                print(f"stopped early: {budget.gate() if budget else 'gate'}", file=sys.stderr)
-                failed = True
+        for model in models:
+            settings = load_settings(endpoint=args.endpoint, target_model=model)
+            if args.echo:
+                transport, agents, ep_name = EchoTransport(), [EchoStage(o) for o in LLM_OWNERS], "echo"
+            else:
+                require_key(settings)
+                budget = budget or Budget.from_settings(settings)
+                ep = settings.endpoint
+                ep_name = ep.name
+                if ep.name not in clients:
+                    clients[ep.name] = ApertusClient(ep, timeout_s=settings.timeout_s)
+                client = clients[ep.name]
+                transport = LiveTransport(client, budget, model=settings.target_model,
+                                          evidence_dir=settings.evidence_dir,
+                                          max_tokens=settings.target_max_tokens,
+                                          temperature=settings.target_temperature, seed=settings.seed)
+                stage_kw = dict(model=settings.stage_model, max_tokens=settings.stage_max_tokens,
+                                temperature=settings.stage_temperature, seed=settings.seed)
+                agents = [Vainamoinen(client, budget, **stage_kw), Louhi(client, budget, **stage_kw)]
+                print(f"--- endpoint {ep.name}, target {settings.target_model}, budget {budget.status()}")
+
+            for path, chain in chains:
+                print(f"=== chain {Path(path).name}: {' -> '.join(s.id for s in chain.stages)}")
+                results = await run_batch(
+                    chain, seeds, transport=transport, stage_agents=agents,
+                    target_model=transport.model_id, on_update=None if args.quiet else print_update,
+                    gate=budget.gate if budget else (lambda: None),
+                    tags={"batch_id": batch_id, "endpoint": ep_name})
+                for r in results:
+                    print(f"{r.seed_id}: {r.verdict}")
+                    failed |= r.verdict in PIPELINE_FAILURES
+                if len(results) < len(seeds):
+                    print(f"stopped early: {budget.gate() if budget else 'gate'}", file=sys.stderr)
+                    return 1
     finally:
-        if client:
-            await client.aclose()
-    if budget:
-        print(f"budget: {budget.status()}")
+        for c in clients.values():
+            await c.aclose()
+        if budget:
+            print(f"budget: {budget.status()}")
+    if not args.echo:
+        print(f"\nreport: vipunen report --batch {batch_id}")
     return 1 if failed else 0
+
+
+def cmd_report(args: argparse.Namespace) -> int:
+    seeds = {s.id: s for path in (args.seeds or DEFAULT_REPORT_SEEDS) for s in load_seeds(path)}
+    records = report.load_records(Path(args.evidence), batch=args.batch)
+    rows, skipped = report.rescore(records, seeds)
+    if not rows:
+        print("no scored records found", file=sys.stderr)
+        return 1
+    print(f"{len(rows)} responses re-scored from {args.evidence}"
+          + (f" (batch {args.batch})" if args.batch else "")
+          + (f"; {len(skipped)} seed id(s) not in the seed files skipped" if skipped else ""))
+    print("\n" + report.table(rows))
+    if args.pairs:
+        print("\n" + report.pair_view(rows))
+    return 0
 
 
 async def _models(settings: Settings, ping: bool, budget: Budget | None) -> int:
@@ -174,15 +210,17 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.reconfigure(encoding="utf-8")  # Finnish on a Windows console
     p = argparse.ArgumentParser(prog="vipunen")
     sub = p.add_subparsers(dest="cmd", required=True)
-    endpoint = dict(choices=("llm", "cscs", "publicai"),
-                    help="llm = LLM_BASE_URL/LLM_API_KEY (default); publicai = PUBLICAI_* fallback")
+    endpoint = dict(choices=("llm", "cscs", "publicai", "auto"),
+                    help="llm = LLM_BASE_URL/LLM_API_KEY (default); publicai = PUBLICAI_* fallback; "
+                         "auto = llm, but Public AI for models the CSCS key cannot reach")
 
     r = sub.add_parser("run", help="run seeds through a chain")
     r.add_argument("--demo", action="store_true", help="public neutral chain + control arm on demo seeds")
     r.add_argument("--chain", action="append", help="chain YAML (repeatable)")
-    r.add_argument("--seeds", help=f"seed YAML (default {DEMO_SEEDS})")
+    r.add_argument("--seeds", action="append", help=f"seed YAML, repeatable (default {DEMO_SEEDS})")
     r.add_argument("--limit", type=int, help="first N seeds only")
-    r.add_argument("--model", help="target model id (default LLM_NAME)")
+    r.add_argument("--model", action="append", help="target model id, repeatable (default LLM_NAME)")
+    r.add_argument("--quiet", action="store_true", help="verdicts only, no stage trace")
     r.add_argument("--endpoint", **endpoint)
     r.add_argument("--echo", action="store_true", help="offline: echo stages and target, no network")
     r.add_argument("--estimate", action="store_true", help="price the run (worst case) and exit")
@@ -192,6 +230,14 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument("--ping", action="store_true", help="one short call per known Apertus model")
     m.add_argument("--endpoint", **endpoint)
     m.set_defaults(func=cmd_models)
+
+    rp = sub.add_parser("report", help="re-score stored evidence and print verdict tables (offline)")
+    rp.add_argument("--evidence", default="private/evidence")
+    rp.add_argument("--batch", help="only this batch id")
+    rp.add_argument("--seeds", action="append",
+                    help=f"seed YAML, repeatable (default {DEFAULT_REPORT_SEEDS[0]})")
+    rp.add_argument("--pairs", action="store_true", help="also show fi vs en per claim")
+    rp.set_defaults(func=cmd_report)
 
     sub.add_parser("console", help="operator console on localhost").set_defaults(func=cmd_pending("S6"))
 

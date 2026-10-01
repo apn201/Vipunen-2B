@@ -27,6 +27,7 @@ class ModelInfo:
     usd_in_per_m: float      # list price per 1M tokens (Public AI); used as a conservative ceiling everywhere
     usd_out_per_m: float
     thinking: bool = False
+    on_cscs: bool = True     # the hackathon CSCS key is not entitled to the v1.0 models (HTTP 403)
 
 
 MODELS: dict[str, ModelInfo] = {m.id: m for m in [
@@ -34,8 +35,8 @@ MODELS: dict[str, ModelInfo] = {m.id: m for m in [
     ModelInfo("swiss-ai/Apertus-v1.5-8B-thinking", "swiss-ai/apertus-v1.5-8b-thinking", 0.10, 0.20, True),
     ModelInfo("swiss-ai/Apertus-v1.5-70B", "swiss-ai/apertus-v1.5-70b", 0.82, 2.92),
     ModelInfo("swiss-ai/Apertus-v1.5-70B-thinking", "swiss-ai/apertus-v1.5-70b-thinking", 0.82, 2.92, True),
-    ModelInfo("swiss-ai/Apertus-8B-Instruct-2509", "swiss-ai/apertus-8b-instruct", 0.10, 0.20),
-    ModelInfo("swiss-ai/Apertus-70B-Instruct-2509", "swiss-ai/apertus-70b-instruct", 0.82, 2.92),
+    ModelInfo("swiss-ai/Apertus-8B-Instruct-2509", "swiss-ai/apertus-8b-instruct", 0.10, 0.20, on_cscs=False),
+    ModelInfo("swiss-ai/Apertus-70B-Instruct-2509", "swiss-ai/apertus-70b-instruct", 0.82, 2.92, on_cscs=False),
 ]}
 # Unknown models (e.g. a self-hosted alias) are priced like the dearest known one: fail closed.
 FALLBACK_PRICE = ModelInfo("unknown", "unknown", 0.82, 2.92)
@@ -104,10 +105,15 @@ def _endpoint(env: Mapping[str, str], which: str) -> Endpoint:
 
 def load_settings(env: Mapping[str, str] | None = None, *, endpoint: str | None = None,
                   target_model: str | None = None) -> Settings:
+    """``endpoint='auto'`` uses LLM_* unless that is CSCS and the model is not served there."""
     env = os.environ if env is None else env
     which = endpoint or env.get("VIPUNEN_ENDPOINT") or "llm"
-    if which not in ("llm", "cscs", "publicai"):
-        raise SettingsError(f"endpoint must be llm|cscs|publicai, got {which!r}")
+    if which not in ("llm", "cscs", "publicai", "auto"):
+        raise SettingsError(f"endpoint must be llm|cscs|publicai|auto, got {which!r}")
+    if which == "auto":
+        model = target_model or env.get("LLM_NAME") or ""
+        on_cscs = MODELS[model].on_cscs if model in MODELS else True
+        which = "llm" if on_cscs or _endpoint(env, "llm").name != "cscs" else "publicai"
     ep = _endpoint(env, "publicai" if which == "publicai" else "llm")
 
     def num(name: str, default: float) -> float:
@@ -117,12 +123,17 @@ def load_settings(env: Mapping[str, str] | None = None, *, endpoint: str | None 
         except ValueError as e:
             raise SettingsError(f"{name} must be a number, got {raw!r}") from e
 
-    target = target_model or env.get("LLM_NAME") or "swiss-ai/Apertus-v1.5-8B"
+    default_model = env.get("LLM_NAME") or "swiss-ai/Apertus-v1.5-8B"
+    target = target_model or default_model
     seed_raw = env.get("VIPUNEN_SEED", "1234")
     return Settings(
         endpoint=ep,
         target_model=target,
-        stage_model=env.get("VIPUNEN_STAGE_MODEL") or target,
+        # The carrier is written by ONE fixed model whatever the target, so a grid over
+        # targets compares targets, not verse writers.
+        stage_model=env.get("VIPUNEN_STAGE_MODEL") or default_model,
+        # Thinking models spend tokens on the trace first; 1500 cut one off mid-thought.
+        target_max_tokens=4000 if model_info(target).thinking else 1500,
         budget_usd=num("VIPUNEN_BUDGET_USD", 5.0),
         target_temperature=num("VIPUNEN_TEMPERATURE", 0.0),
         seed=int(seed_raw) if seed_raw.strip() else None,

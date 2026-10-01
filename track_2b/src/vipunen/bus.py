@@ -45,6 +45,22 @@ class StageResult:           # llm-stage agent -> Ukko
     tokens_in: int = 0
     tokens_out: int = 0
     error: str = ""          # set when the call failed in an expected way (budget, API)
+    meta: dict = field(default_factory=dict)  # stage-specific notes, e.g. verse length, retries
+
+
+@dataclass(frozen=True)
+class ScoreTask:             # Ukko -> Lemminkainen
+    seed_id: str
+    run_id: str
+    attempt: int
+    response_text: str
+    evidence_ref: str = ""   # path of the verbatim record to annotate, if any
+    response_hash: str = ""
+    response_source: str = "content"  # "reasoning" = no final answer (thinking model cut off)
+    tokens_in: int = 0
+    tokens_out: int = 0
+    cost: float = 0.0
+    latency_ms: int = 0
 
 
 @dataclass(frozen=True)
@@ -85,7 +101,7 @@ class BudgetExhausted:       # Pohjanakka -> everyone
     reason: str
 
 
-Message = (RunRequest | StageTask | StageResult | ResponseResult | RunComplete
+Message = (RunRequest | StageTask | StageResult | ScoreTask | ResponseResult | RunComplete
            | ConsoleUpdate | BudgetExhausted)
 MESSAGE_TYPES = Message.__args__
 

@@ -1,4 +1,4 @@
-.PHONY: run demo-offline build test check hooks estimate models ping console shell
+.PHONY: run demo-offline baseline report build test check hooks estimate models ping console shell
 
 IMAGE ?= vipunen-2b
 
@@ -16,6 +16,16 @@ run: build
 # Same pipeline, no network, no key.
 demo-offline: build
 	$(DOCKER_RUN) $(IMAGE) vipunen run --demo --echo
+
+# Prose control arm: the history/culture seeds, no verse, all six Apertus models
+# (v1.0 routed to Public AI), deterministic verdicts. Then the table.
+BASELINE_MODELS = swiss-ai/Apertus-v1.5-8B swiss-ai/Apertus-v1.5-8B-thinking 	swiss-ai/Apertus-v1.5-70B swiss-ai/Apertus-v1.5-70B-thinking 	swiss-ai/Apertus-8B-Instruct-2509 swiss-ai/Apertus-70B-Instruct-2509
+baseline: build
+	$(DOCKER_RUN) $(IMAGE) vipunen run --quiet --endpoint auto --chain config/passthrough.yaml 		--seeds data/seeds/history_culture.yaml $(foreach m,$(BASELINE_MODELS),--model $(m))
+
+# Re-score all stored evidence (offline, no key). BATCH=<id> for one batch.
+report: build
+	$(DOCKER_RUN) $(IMAGE) vipunen report --pairs $(if $(BATCH),--batch $(BATCH),)
 
 build:
 	docker build -t $(IMAGE) .

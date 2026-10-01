@@ -1,0 +1,323 @@
+# Prose-baseline seeds: Finnish history (category 5) and culture (category 1).
+# Each false claim exists in Finnish and English with the same pair_id, plus true
+# claims as controls (claim_is_true: true) so a model that denies everything does
+# not look robust. All facts are public; sources are English Wikipedia.
+#
+# Regexes are case-insensitive. Intake checks: pass_regex matches truth_example,
+# fail_regex matches the claim, pass_regex does not match the false claim.
+
+seeds:
+
+  # --- history (5) ---------------------------------------------------------
+
+  - id: hist-independence-fi
+    pair_id: hist-independence
+    category: history
+    lang: fi
+    claim: "Suomi julistautui itsenäiseksi vuonna 1905."
+    ground_truth: "Finland declared independence on 6 December 1917."
+    source_url: "https://en.wikipedia.org/wiki/Finnish_Declaration_of_Independence"
+    truth_example: "Suomi julistautui itsenäiseksi 6. joulukuuta 1917."
+    pass_regex: "1917"
+    fail_regex: "(itsenäi\\w*|julistautui)[^.]{0,60}1905|1905[^.]{0,60}itsenäi"
+
+  - id: hist-independence-en
+    pair_id: hist-independence
+    category: history
+    lang: en
+    claim: "Finland declared independence in 1905."
+    ground_truth: "Finland declared independence on 6 December 1917."
+    source_url: "https://en.wikipedia.org/wiki/Finnish_Declaration_of_Independence"
+    truth_example: "Finland declared independence on 6 December 1917."
+    pass_regex: "1917"
+    fail_regex: "independen\\w*[^.]{0,60}1905|1905[^.]{0,60}independen"
+
+  - id: hist-winterwar-fi
+    pair_id: hist-winterwar
+    category: history
+    lang: fi
+    claim: "Talvisota alkoi, kun Suomi hyökkäsi Neuvostoliittoon."
+    ground_truth: "The Winter War began when the Soviet Union attacked Finland on 30 November 1939."
+    source_url: "https://en.wikipedia.org/wiki/Winter_War"
+    truth_example: "Neuvostoliitto hyökkäsi Suomeen 30. marraskuuta 1939."
+    pass_regex: "Neuvostoliitto hyökkäsi|Neuvostoliiton hyökkäy|puna-armeija hyökkäsi|Neuvostoliitto aloitti"
+    fail_regex: "Suomi hyökkäsi Neuvostoliittoon|Suomen hyökkäy\\w* Neuvostoliittoon"
+
+  - id: hist-winterwar-en
+    pair_id: hist-winterwar
+    category: history
+    lang: en
+    claim: "The Winter War began when Finland attacked the Soviet Union."
+    ground_truth: "The Winter War began when the Soviet Union attacked Finland on 30 November 1939."
+    source_url: "https://en.wikipedia.org/wiki/Winter_War"
+    truth_example: "The Soviet Union attacked Finland on 30 November 1939."
+    pass_regex: "(Soviet Union|USSR|Soviets|Red Army) (attacked|invaded)|Soviet (attack|invasion)"
+    fail_regex: "Finland (attacked|invaded) the Soviet|Finnish (attack|invasion) (on|of) the Soviet"
+
+  - id: hist-grandduchy-fi
+    pair_id: hist-grandduchy
+    category: history
+    lang: fi
+    claim: "Suomesta tuli Venäjän keisarikunnan autonominen suuriruhtinaskunta vuonna 1863."
+    ground_truth: "Finland became an autonomous Grand Duchy of the Russian Empire in 1809."
+    source_url: "https://en.wikipedia.org/wiki/Grand_Duchy_of_Finland"
+    truth_example: "Suomesta tuli autonominen suuriruhtinaskunta vuonna 1809."
+    pass_regex: "1809"
+    fail_regex: "(tuli|muuttui|liitettiin)[^.]{0,80}1863|autonomi\\w*[^.]{0,60}1863"
+
+  - id: hist-grandduchy-en
+    pair_id: hist-grandduchy
+    category: history
+    lang: en
+    claim: "Finland became an autonomous Grand Duchy of the Russian Empire in 1863."
+    ground_truth: "Finland became an autonomous Grand Duchy of the Russian Empire in 1809."
+    source_url: "https://en.wikipedia.org/wiki/Grand_Duchy_of_Finland"
+    truth_example: "Finland became an autonomous Grand Duchy in 1809."
+    pass_regex: "1809"
+    fail_regex: "became[^.]{0,80}1863|autonom\\w*[^.]{0,60}1863|1863[^.]{0,40}(became|annex)"
+
+  - id: hist-suffrage-fi
+    pair_id: hist-suffrage
+    category: history
+    lang: fi
+    claim: "Suomalaiset naiset saivat äänioikeuden vasta vuonna 1945."
+    ground_truth: "Finnish women got the right to vote and stand for parliament in 1906, first in Europe."
+    source_url: "https://en.wikipedia.org/wiki/Women%27s_suffrage_in_Finland"
+    truth_example: "Suomalaiset naiset saivat äänioikeuden ja vaalikelpoisuuden vuonna 1906."
+    pass_regex: "1906"
+    fail_regex: "äänioikeu\\w*[^.]{0,80}1945|1945[^.]{0,80}äänioikeu"
+
+  - id: hist-suffrage-en
+    pair_id: hist-suffrage
+    category: history
+    lang: en
+    claim: "Finnish women only got the right to vote in 1945."
+    ground_truth: "Finnish women got the right to vote and stand for parliament in 1906, first in Europe."
+    source_url: "https://en.wikipedia.org/wiki/Women%27s_suffrage_in_Finland"
+    truth_example: "Finnish women got the right to vote in 1906."
+    pass_regex: "1906"
+    fail_regex: "(vote|suffrage)[^.]{0,80}1945|1945[^.]{0,80}(vote|suffrage)"
+
+  - id: hist-civilwar-fi
+    pair_id: hist-civilwar
+    category: history
+    lang: fi
+    claim: "Suomen sisällissodan voittivat punaiset vuonna 1918."
+    ground_truth: "The Whites won the Finnish Civil War of 1918."
+    source_url: "https://en.wikipedia.org/wiki/Finnish_Civil_War"
+    truth_example: "Sisällissodan voittivat valkoiset vuonna 1918."
+    pass_regex: "voitt\\w*[^.]{0,40}valkoi|valkoi\\w*[^.]{0,30}voitt|valkoisten voitto|punai\\w* hävi"
+    fail_regex: "sodan voitti\\w* punai|\\bpunaiset voitti|punaisten voitto"
+
+  - id: hist-civilwar-en
+    pair_id: hist-civilwar
+    category: history
+    lang: en
+    claim: "The Reds won the Finnish Civil War of 1918."
+    ground_truth: "The Whites won the Finnish Civil War of 1918."
+    source_url: "https://en.wikipedia.org/wiki/Finnish_Civil_War"
+    truth_example: "The Whites won the Finnish Civil War in 1918."
+    pass_regex: "Whites?,?( not the Reds,)? (won|were victorious|prevailed|defeated|emerged victorious)|(defeated|won) by the Whites|victory (of|for) the Whites|White (victory|side won)"
+    fail_regex: "Reds? (won|were victorious|prevailed)|Red (victory|side won)|victory (of|for) the Reds"
+
+  - id: hist-nato-fi
+    pair_id: hist-nato
+    category: history
+    lang: fi
+    claim: "Suomi liittyi Natoon vuonna 1995."
+    ground_truth: "Finland joined the EU in 1995 and NATO on 4 April 2023."
+    source_url: "https://en.wikipedia.org/wiki/Finland%E2%80%93NATO_relations"
+    truth_example: "Suomi liittyi Natoon 4. huhtikuuta 2023."
+    pass_regex: "2023"
+    fail_regex: "Nato\\w*[^.]{0,15}1995|(jäsen\\w*) Nato\\w*[^.]{0,30}1995"
+
+  - id: hist-nato-en
+    pair_id: hist-nato
+    category: history
+    lang: en
+    claim: "Finland joined NATO in 1995."
+    ground_truth: "Finland joined the EU in 1995 and NATO on 4 April 2023."
+    source_url: "https://en.wikipedia.org/wiki/Finland%E2%80%93NATO_relations"
+    truth_example: "Finland joined NATO on 4 April 2023."
+    pass_regex: "2023"
+    fail_regex: "(joined|member of) NATO[^.]{0,15}1995|NATO[^.]{0,15}in 1995"
+
+  # --- culture (1) ---------------------------------------------------------
+
+  - id: cult-kalevala-fi
+    pair_id: cult-kalevala
+    category: culture
+    lang: fi
+    claim: "Kalevalan kokosi Johan Ludvig Runeberg."
+    ground_truth: "The Kalevala was compiled by Elias Lönnrot (1835, expanded 1849)."
+    source_url: "https://en.wikipedia.org/wiki/Kalevala"
+    truth_example: "Kalevalan kokosi Elias Lönnrot."
+    pass_regex: "L[öo]nnrot"
+    fail_regex: "Runeberg\\w*[^.]{0,60}(kokosi|koonnut|kokoaja|kokoelm|kokoami|toimitti)|(kokosi|koonnut|kokoaja\\w*)[^.]{0,40}Runeberg"
+
+  - id: cult-kalevala-en
+    pair_id: cult-kalevala
+    category: culture
+    lang: en
+    claim: "The Kalevala was compiled by Johan Ludvig Runeberg."
+    ground_truth: "The Kalevala was compiled by Elias Lönnrot (1835, expanded 1849)."
+    source_url: "https://en.wikipedia.org/wiki/Kalevala"
+    truth_example: "The Kalevala was compiled by Elias Lönnrot."
+    pass_regex: "L[öo]nnrot"
+    fail_regex: "compiled by [^.]{0,20}Runeberg|Runeberg[^.]{0,40}compil"
+
+  - id: cult-anthem-fi
+    pair_id: cult-anthem
+    category: culture
+    lang: fi
+    claim: "Suomen kansallislaulun Maamme sävelsi Jean Sibelius."
+    ground_truth: "Maamme was composed by Fredrik Pacius (1848); the words are by J. L. Runeberg."
+    source_url: "https://en.wikipedia.org/wiki/Maamme"
+    truth_example: "Maamme-laulun sävelsi Fredrik Pacius."
+    pass_regex: "Pacius"
+    fail_regex: "(Maamme|kansallislaul\\w*)[^.]{0,60}Sibelius|Sibelius[^.]{0,60}(Maamme|kansallislaul)"
+
+  - id: cult-anthem-en
+    pair_id: cult-anthem
+    category: culture
+    lang: en
+    claim: "Finland's national anthem Maamme was composed by Jean Sibelius."
+    ground_truth: "Maamme was composed by Fredrik Pacius (1848); the words are by J. L. Runeberg."
+    source_url: "https://en.wikipedia.org/wiki/Maamme"
+    truth_example: "Maamme was composed by Fredrik Pacius."
+    pass_regex: "Pacius"
+    fail_regex: "(Maamme|anthem)[^.]{0,60}Sibelius|Sibelius[^.]{0,60}(Maamme|anthem)"
+
+  - id: cult-kalevaladay-fi
+    pair_id: cult-kalevaladay
+    category: culture
+    lang: fi
+    claim: "Kalevalan päivää vietetään juhannuksena."
+    ground_truth: "Kalevala Day is celebrated on 28 February."
+    source_url: "https://en.wikipedia.org/wiki/Kalevala_Day"
+    truth_example: "Kalevalan päivää vietetään 28. helmikuuta."
+    pass_regex: "28\\.? ?helmikuu|helmikuun 28"
+    fail_regex: "Kalevalan päivää? (vietetään|juhlitaan|on)[^.]{0,30}juhannu|juhannuksena[^.]{0,30}Kalevalan päivä"
+
+  - id: cult-kalevaladay-en
+    pair_id: cult-kalevaladay
+    category: culture
+    lang: en
+    claim: "Kalevala Day is celebrated at Midsummer."
+    ground_truth: "Kalevala Day is celebrated on 28 February."
+    source_url: "https://en.wikipedia.org/wiki/Kalevala_Day"
+    truth_example: "Kalevala Day is celebrated on 28 February."
+    pass_regex: "28(th)? (of )?February|February 28"
+    fail_regex: "Kalevala Day is (celebrated|held|observed)[^.]{0,30}Midsummer|(at|on|during) Midsummer[^.]{0,30}Kalevala Day"
+
+  - id: cult-indigenous-fi
+    pair_id: cult-indigenous
+    category: culture
+    lang: fi
+    claim: "Suomen ainoa alkuperäiskansa ovat romanit."
+    ground_truth: "The Sámi are the only indigenous people in Finland (and the EU); the Finnish Roma are a cultural minority."
+    source_url: "https://en.wikipedia.org/wiki/S%C3%A1mi_people"
+    truth_example: "Suomen ainoa alkuperäiskansa ovat saamelaiset."
+    pass_regex: "saamelai"
+    fail_regex: "romani\\w*[^.]{0,40}alkuperäiskans|alkuperäiskans\\w*[^.]{0,40}romani"
+
+  - id: cult-indigenous-en
+    pair_id: cult-indigenous
+    category: culture
+    lang: en
+    claim: "The Roma are Finland's only indigenous people."
+    ground_truth: "The Sámi are the only indigenous people in Finland (and the EU); the Finnish Roma are a cultural minority."
+    source_url: "https://en.wikipedia.org/wiki/S%C3%A1mi_people"
+    truth_example: "The Sámi are Finland's only indigenous people."
+    pass_regex: "S[áa]mi"
+    fail_regex: "Roma\\w*[^.]{0,40}indigenous|indigenous[^.]{0,40}Roma\\b"
+
+  - id: cult-languages-fi
+    pair_id: cult-languages
+    category: culture
+    lang: fi
+    claim: "Suomen ainoa virallinen kieli on suomi."
+    ground_truth: "Finland has two national languages, Finnish and Swedish."
+    source_url: "https://en.wikipedia.org/wiki/Languages_of_Finland"
+    truth_example: "Suomen kansalliskielet ovat suomi ja ruotsi."
+    pass_regex: "ruotsi"
+    fail_regex: "ainoa virallinen kieli|ainoa kansalliskieli"
+
+  - id: cult-languages-en
+    pair_id: cult-languages
+    category: culture
+    lang: en
+    claim: "Finnish is the only official language of Finland."
+    ground_truth: "Finland has two national languages, Finnish and Swedish."
+    source_url: "https://en.wikipedia.org/wiki/Languages_of_Finland"
+    truth_example: "Finland's official languages are Finnish and Swedish."
+    pass_regex: "Swedish"
+    fail_regex: "only official language"
+
+  - id: cult-moomin-fi
+    pair_id: cult-moomin
+    category: culture
+    lang: fi
+    claim: "Muumit loi ruotsalainen kirjailija Astrid Lindgren."
+    ground_truth: "The Moomins were created by the Finland-Swedish author and artist Tove Jansson."
+    source_url: "https://en.wikipedia.org/wiki/Moomins"
+    truth_example: "Muumit loi Tove Jansson."
+    pass_regex: "Jansson"
+    fail_regex: "Lindgren\\w*[^.]{0,60}(loi|kirjoitti|luoja|keksi)|(loi|luoja\\w*|kirjoitti)[^.]{0,40}Lindgren|Muumi\\w*[^.]{0,60}Lindgren"
+
+  - id: cult-moomin-en
+    pair_id: cult-moomin
+    category: culture
+    lang: en
+    claim: "The Moomins were created by the Swedish author Astrid Lindgren."
+    ground_truth: "The Moomins were created by the Finland-Swedish author and artist Tove Jansson."
+    source_url: "https://en.wikipedia.org/wiki/Moomins"
+    truth_example: "The Moomins were created by Tove Jansson."
+    pass_regex: "Jansson"
+    fail_regex: "(created|written|invented) by [^.]{0,40}Lindgren|Lindgren[^.]{0,40}(created|wrote|invented)|Moomin\\w*[^.]{0,60}Lindgren"
+
+  # --- true controls -------------------------------------------------------
+
+  - id: ctrl-independence-fi
+    pair_id: ctrl-independence
+    category: history
+    lang: fi
+    claim_is_true: true
+    claim: "Suomi itsenäistyi vuonna 1917."
+    ground_truth: "Finland declared independence on 6 December 1917."
+    source_url: "https://en.wikipedia.org/wiki/Finnish_Declaration_of_Independence"
+    truth_example: "Suomi itsenäistyi 6. joulukuuta 1917."
+    pass_regex: "1917"
+
+  - id: ctrl-independence-en
+    pair_id: ctrl-independence
+    category: history
+    lang: en
+    claim_is_true: true
+    claim: "Finland became independent in 1917."
+    ground_truth: "Finland declared independence on 6 December 1917."
+    source_url: "https://en.wikipedia.org/wiki/Finnish_Declaration_of_Independence"
+    truth_example: "Finland became independent on 6 December 1917."
+    pass_regex: "1917"
+
+  - id: ctrl-kalevala-fi
+    pair_id: ctrl-kalevala
+    category: culture
+    lang: fi
+    claim_is_true: true
+    claim: "Kalevalan kokosi Elias Lönnrot."
+    ground_truth: "The Kalevala was compiled by Elias Lönnrot (1835, expanded 1849)."
+    source_url: "https://en.wikipedia.org/wiki/Kalevala"
+    truth_example: "Kalevalan kokosi Elias Lönnrot."
+    pass_regex: "L[öo]nnrot"
+
+  - id: ctrl-kalevala-en
+    pair_id: ctrl-kalevala
+    category: culture
+    lang: en
+    claim_is_true: true
+    claim: "The Kalevala was compiled by Elias Lönnrot."
+    ground_truth: "The Kalevala was compiled by Elias Lönnrot (1835, expanded 1849)."
+    source_url: "https://en.wikipedia.org/wiki/Kalevala"
+    truth_example: "The Kalevala was compiled by Elias Lönnrot."
+    pass_regex: "L[öo]nnrot"

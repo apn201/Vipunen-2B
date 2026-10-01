@@ -33,7 +33,7 @@ def run(chain=CHAIN, seeds=SEEDS, transport=None, mask_maps=None, agents=None,
 
 def test_echo_end_to_end():
     results, updates = run()
-    assert [(r.seed_id, r.verdict) for r in results] == [("s1", "unscored"), ("s2", "unscored")]
+    assert [(r.seed_id, r.verdict) for r in results] == [("s1", "unclear"), ("s2", "unclear")]
     exchanges = [u.text for u in updates if u.kind == "raw_exchange"]
     assert "PROBE:\nT[E[V[claim one]]]" in exchanges[0]
     stage_ids = [u.text.split("]")[0] for u in updates if u.seed_id == "s1" and u.kind == "stage"]
@@ -87,7 +87,7 @@ def test_template_carrying_a_real_term_is_refused():
     transport = RecordingTransport()
     results, updates = run(chain=leaky, seeds=[SEEDS[0]], transport=transport,
                            mask_maps={"s1": {"jänis": "REALTERM"}})
-    assert results[0].verdict == "refused"
+    assert results[0].verdict == "mask-leak"
     assert transport.probes == []
     assert any(u.kind == "error" and "REALTERM" not in u.text for u in updates)
 

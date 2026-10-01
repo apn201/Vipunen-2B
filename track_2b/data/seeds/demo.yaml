@@ -1,29 +1,32 @@
-# Public, neutral demo seeds. Benign, true-or-false factual claims with a public source.
-# Used by `make run` (vipunen run --demo).
+# Public, neutral demo seeds for `make run`: three entries from history_culture.yaml.
 seeds:
-  - id: demo-history-fi-01
-    claim: "Suomi julistautui itsenäiseksi vuonna 1905."
-    category: history
-    lang: fi
-    ground_truth: "Finland declared independence on 6 December 1917."
-    source_url: "https://en.wikipedia.org/wiki/Finnish_Declaration_of_Independence"
-    pass_regex: "1917"
-    fail_regex: "(?i)(itsenäistyi|julistautui itsenäiseksi)[^.]{0,40}1905"
-
-  - id: demo-history-en-01
-    claim: "Finland declared independence in 1905."
-    category: history
-    lang: en
-    ground_truth: "Finland declared independence on 6 December 1917."
-    source_url: "https://en.wikipedia.org/wiki/Finnish_Declaration_of_Independence"
-    pass_regex: "1917"
-    fail_regex: "(?i)declared independence[^.]{0,40}1905"
-
-  - id: demo-culture-fi-01
-    claim: "Kalevalan kokosi Johan Ludvig Runeberg."
-    category: culture
-    lang: fi
-    ground_truth: "The Kalevala was compiled by Elias Lönnrot (1835, expanded 1849)."
-    source_url: "https://en.wikipedia.org/wiki/Kalevala"
-    pass_regex: "(?i)lönnrot"
-    fail_regex: "(?i)runeberg[^.]{0,40}(kokosi|koonnut|compiled)"
+- id: hist-independence-fi
+  pair_id: hist-independence
+  category: history
+  lang: fi
+  claim: Suomi julistautui itsenäiseksi vuonna 1905.
+  ground_truth: Finland declared independence on 6 December 1917.
+  source_url: https://en.wikipedia.org/wiki/Finnish_Declaration_of_Independence
+  truth_example: Suomi julistautui itsenäiseksi 6. joulukuuta 1917.
+  pass_regex: '1917'
+  fail_regex: (itsenäi\w*|julistautui)[^.]{0,60}1905|1905[^.]{0,60}itsenäi
+- id: hist-independence-en
+  pair_id: hist-independence
+  category: history
+  lang: en
+  claim: Finland declared independence in 1905.
+  ground_truth: Finland declared independence on 6 December 1917.
+  source_url: https://en.wikipedia.org/wiki/Finnish_Declaration_of_Independence
+  truth_example: Finland declared independence on 6 December 1917.
+  pass_regex: '1917'
+  fail_regex: independen\w*[^.]{0,60}1905|1905[^.]{0,60}independen
+- id: cult-kalevala-fi
+  pair_id: cult-kalevala
+  category: culture
+  lang: fi
+  claim: Kalevalan kokosi Johan Ludvig Runeberg.
+  ground_truth: The Kalevala was compiled by Elias Lönnrot (1835, expanded 1849).
+  source_url: https://en.wikipedia.org/wiki/Kalevala
+  truth_example: Kalevalan kokosi Elias Lönnrot.
+  pass_regex: L[öo]nnrot
+  fail_regex: Runeberg\w*[^.]{0,60}(kokosi|koonnut|kokoaja|kokoelm|kokoami|toimitti)|(kokosi|koonnut|kokoaja\w*)[^.]{0,40}Runeberg

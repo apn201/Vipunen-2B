@@ -4,7 +4,8 @@ Before every llm stage Ukko checks that no real term from the mask map is in the
 text the stage would see - a second guard behind the chain-order check, for the
 case where the operator's mask misses a term or a template carries one.
 
-S1: one attempt per seed. S4 adds the per-seed loop (one variable per attempt).
+After the target answers, Lemminkainen scores the response and Ukko reports the
+verdict. S4 adds the per-seed loop (one variable per attempt).
 """
 from __future__ import annotations
 
@@ -13,8 +14,10 @@ from dataclasses import asdict
 
 from vipunen.agents import joukahainen
 from vipunen.agents.base import UKKO
+from vipunen.agents.lemminkainen import CHANNEL as LEMMINKAINEN
 from vipunen.budget import BudgetExceeded
-from vipunen.bus import Bus, ConsoleUpdate, RunComplete, RunRequest, StageResult, StageTask
+from vipunen.bus import (Bus, ConsoleUpdate, ResponseResult, RunComplete, RunRequest, ScoreTask,
+                         StageResult, StageTask)
 from vipunen.chain import Chain, render, validate
 from vipunen.client import ApertusError
 from vipunen.seeds import Seed, sha256_text
@@ -32,13 +35,14 @@ class StageFailed(RuntimeError):
 class Ukko:
     def __init__(self, chain: Chain, seeds: dict[str, Seed], transport: Transport,
                  mask_maps: dict[str, dict[str, str]] | None = None,
-                 unmask=joukahainen.unmask) -> None:
+                 unmask=joukahainen.unmask, tags: dict | None = None) -> None:
         validate(chain)  # already enforced at construction; cheap to restate here
         self.chain = chain
         self.seeds = seeds
         self.transport = transport
         self.mask_maps = mask_maps or {}
         self.unmask = unmask
+        self.tags = tags or {}  # e.g. batch_id; copied into every evidence record
 
     async def run(self, bus: Bus) -> None:
         while True:
@@ -47,7 +51,7 @@ class Ukko:
                 verdict = await self.attempt(bus, req, attempt=1)
             except MaskLeak as e:
                 await self._say(bus, req, "error", f"refused: {e}")
-                verdict = "refused"
+                verdict = "mask-leak"
             except BudgetExceeded as e:
                 await self._say(bus, req, "error", f"budget: {e}")
                 verdict = "budget"
@@ -78,26 +82,44 @@ class Ukko:
                     raise exc(f"stage {stage.id!r}: {result.error}")
                 text = result.output_text
                 trail.append({"stage_id": stage.id, "owner": stage.owner, "output_text": text,
-                              "tokens_in": result.tokens_in, "tokens_out": result.tokens_out})
+                              "tokens_in": result.tokens_in, "tokens_out": result.tokens_out,
+                              **result.meta})
             elif stage.kind == "swap":
                 text = self.unmask(text, mask_map)
                 trail.append({"stage_id": stage.id, "kind": "swap"})
             else:  # target - always last
-                probe = render(stage.template, text)
-                context = {
-                    "claim": seed.claim, "claim_hash": seed.claim_hash, "lang": seed.lang,
-                    "category": seed.category, "source_url": seed.source_url,
-                    "mask_map_ref": sha256_text(json.dumps(mask_map, sort_keys=True)) if mask_map else "",
-                    "chain_snapshot": [asdict(s) for s in self.chain.stages],
-                    "stages": trail,
-                }
-                reply = await self.transport.send(probe, run_id=req.run_id, attempt=attempt,
-                                                  seed_id=seed.id, context=context)
-                await self._say(bus, req, "raw_exchange",
-                                f"PROBE:\n{probe}\n\nRESPONSE ({reply.model_id}):\n{reply.text}")
-                return "unscored"  # Lemminkainen scores from S3
+                return await self._deliver(bus, req, seed, attempt, render(stage.template, text),
+                                           mask_map, trail)
             await self._say(bus, req, "stage", f"[{stage.id}] {text}")
         raise AssertionError("unreachable: validated chain ends with a target stage")
+
+    async def _deliver(self, bus: Bus, req: RunRequest, seed: Seed, attempt: int, probe: str,
+                       mask_map: dict[str, str], trail: list[dict]) -> str:
+        context = {
+            **self.tags, "chain_name": self.chain.name, "target_model": req.target_model,
+            "claim": seed.claim, "claim_hash": seed.claim_hash, "claim_is_true": seed.claim_is_true,
+            "pair_id": seed.pair_id, "lang": seed.lang, "category": seed.category,
+            "source_url": seed.source_url,
+            "mask_map_ref": sha256_text(json.dumps(mask_map, sort_keys=True)) if mask_map else "",
+            "chain_snapshot": [asdict(s) for s in self.chain.stages],
+            "stages": trail,
+        }
+        reply = await self.transport.send(probe, run_id=req.run_id, attempt=attempt,
+                                          seed_id=seed.id, context=context)
+        await self._say(bus, req, "raw_exchange",
+                        f"PROBE:\n{probe}\n\nRESPONSE ({reply.model_id}):\n{reply.text}")
+
+        await bus.put(ScoreTask(seed_id=seed.id, run_id=req.run_id, attempt=attempt,
+                                response_text=reply.text, response_source=reply.source,
+                                evidence_ref=reply.evidence_ref,
+                                response_hash=sha256_text(reply.text),
+                                tokens_in=reply.tokens_in, tokens_out=reply.tokens_out,
+                                cost=reply.cost, latency_ms=reply.latency_ms),
+                      channel=LEMMINKAINEN)
+        scored = await bus.get(ResponseResult, channel=UKKO)
+        flags = ", ".join(k for k, v in scored.delta_signal.items() if v is True)
+        await self._say(bus, req, "verdict", f"{scored.verdict.upper()} ({flags or 'no signals'})")
+        return scored.verdict
 
     async def _say(self, bus: Bus, req: RunRequest, kind: str, text: str) -> None:
         await bus.put(ConsoleUpdate(seed_id=req.seed_id, run_id=req.run_id, kind=kind, text=text))

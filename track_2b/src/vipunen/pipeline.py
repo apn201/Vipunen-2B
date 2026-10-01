@@ -11,6 +11,7 @@ from collections.abc import Callable, Iterable
 
 from vipunen.agents import joukahainen
 from vipunen.agents.base import StageAgent
+from vipunen.agents.lemminkainen import Lemminkainen
 from vipunen.agents.pohjanakka import Pohjanakka
 from vipunen.agents.ukko import Ukko
 from vipunen.bus import Bus, ConsoleUpdate, RunComplete
@@ -30,13 +31,16 @@ async def run_batch(chain: Chain, seeds: Iterable[Seed], *, transport: Transport
                     on_update: Callable[[ConsoleUpdate], None] | None = None,
                     gate: Callable[[], str | None] = lambda: None,
                     unmask: Callable[[str, dict[str, str]], str] = joukahainen.unmask,
-                    ) -> list[RunComplete]:
+                    tags: dict | None = None) -> list[RunComplete]:
     seeds = list(seeds)
     bus = Bus()
     pohjanakka = Pohjanakka(seeds, target_model=target_model, max_tries=chain.max_tries, gate=gate)
-    ukko = Ukko(chain, {s.id: s for s in seeds}, transport, mask_maps=mask_maps, unmask=unmask)
+    by_id = {s.id: s for s in seeds}
+    ukko = Ukko(chain, by_id, transport, mask_maps=mask_maps, unmask=unmask, tags=tags)
+    lemminkainen = Lemminkainen(by_id)
 
-    workers = [asyncio.create_task(ukko.run(bus), name="ukko")]
+    workers = [asyncio.create_task(ukko.run(bus), name="ukko"),
+               asyncio.create_task(lemminkainen.run(bus), name="lemminkainen")]
     workers += [asyncio.create_task(a.run(bus), name=a.owner) for a in stage_agents]
     if on_update:
         workers.append(asyncio.create_task(_relay(bus, on_update), name="console"))

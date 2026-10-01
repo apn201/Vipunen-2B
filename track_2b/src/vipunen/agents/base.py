@@ -8,7 +8,7 @@ from __future__ import annotations
 from vipunen.budget import Budget, BudgetExceeded, estimate_tokens
 from vipunen.bus import Bus, StageResult, StageTask
 from vipunen.chain import render
-from vipunen.client import ApertusClient, ApertusError
+from vipunen.client import ApertusClient, ApertusError, ChatResult
 
 UKKO = "ukko"
 
@@ -58,13 +58,16 @@ class ApertusStage(StageAgent):
         self.temperature = temperature
         self.seed = seed
 
-    async def compose(self, task: StageTask) -> StageResult:
-        prompt = render(task.template, task.input_text)
+    async def call(self, prompt: str, seed: int | None) -> ChatResult:
         self.budget.authorize(self.model, estimate_tokens(prompt), self.max_tokens)
         result = await self.client.chat([{"role": "user", "content": prompt}], model=self.model,
                                         max_tokens=self.max_tokens, temperature=self.temperature,
-                                        seed=self.seed)
+                                        seed=seed)
         self.budget.record(self.model, result.usage)
+        return result
+
+    async def compose(self, task: StageTask) -> StageResult:
+        result = await self.call(render(task.template, task.input_text), self.seed)
         return StageResult(seed_id=task.seed_id, run_id=task.run_id, attempt=task.attempt,
                            stage_id=task.stage_id, output_text=result.text,
                            tokens_in=result.tokens_in, tokens_out=result.tokens_out)
