@@ -2,8 +2,8 @@
 import asyncio
 
 from vipunen.agents import joukahainen
-from vipunen.agents.base import EchoStage
-from vipunen.bus import StageResult
+from vipunen.agents.base import EchoStage, stage_prompt
+from vipunen.bus import StageResult, StageTask
 from vipunen.chain import LLM_OWNERS, parse_chain
 from vipunen.pipeline import run_batch
 from vipunen.seeds import Seed
@@ -30,9 +30,11 @@ class Forgetful(EchoStage):
         super().__init__("vainamoinen")
         self.keeps_on_retry = keeps_on_retry
         self.retries = []
+        self.keeps = []
 
     async def compose(self, task):
         self.retries.append(task.retry)
+        self.keeps.append(task.keep)
         text = "Jänis valkoinen." if task.retry >= self.keeps_on_retry else "Jäniksen turkki."
         return StageResult(seed_id=task.seed_id, run_id=task.run_id, attempt=task.attempt,
                            stage_id=task.stage_id, output_text=text)
@@ -80,3 +82,19 @@ def test_no_placeholder_in_input_means_no_retry():
                           mask_maps={"k": {"Kettu": "Rakkaus"}}, on_update=updates.append,
                           unmask=swap_back))
     assert stage.retries == [0]
+
+
+def test_stage_is_told_which_words_to_keep():
+    stage = Forgetful(keeps_on_retry=0)
+    run(stage)
+    assert stage.keeps == [("Jänis",)]
+
+
+def test_stage_prompt_appends_the_keep_instruction_only_when_needed():
+    task = StageTask(seed_id="k", run_id="r", attempt=1, stage_id="verse",
+                     template="Runoile: {input}", input_text="Jänis on valkoinen.", lang="fi")
+    assert stage_prompt(task) == "Runoile: Jänis on valkoinen."
+    kept = stage_prompt(StageTask(**{**task.__dict__, "keep": ("Jänis",)}))
+    assert kept.startswith("Runoile: Jänis on valkoinen.\n\nTÄRKEÄÄ")
+    assert '"Jänis"' in kept and "Älä taivuta" in kept and "Never inflect" in kept
+    assert joukahainen.leaked_terms(kept, {"Jänis": "Rakkaus"}) == []

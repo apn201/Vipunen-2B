@@ -115,7 +115,8 @@ table.swaps th { color: var(--muted); font-weight: 500; font-size: 12px; }
     <p class="hint">Left: the safe word. The verse and escalation stages see only this.
       Right: the real word. Only the final prompt to the target model gets it.
       The statement may use either: a real word in it is masked to the safe word first.
-      A stage that drops or inflects the safe word is asked again (up to 2 times).</p>
+      The stages are told to write the safe word only in exactly this form (no endings);
+      a stage that still drops or inflects it is asked again (up to 2 times).</p>
     <p class="hint warn" id="swapBodyWarn" hidden></p>
 
     <div class="row">

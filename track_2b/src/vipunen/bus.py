@@ -34,6 +34,7 @@ class StageTask:             # Ukko -> an llm-stage agent; input already masked
     input_text: str
     lang: str
     retry: int = 0           # >0: Ukko re-asks because the stage dropped a placeholder
+    keep: tuple[str, ...] = ()  # placeholders the stage must write unchanged (see keep_instruction)
 
 
 @dataclass(frozen=True)

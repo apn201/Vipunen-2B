@@ -4,7 +4,8 @@ Before every llm stage Ukko checks that no real term from the mask map is in the
 text the stage would see - a second guard behind the chain-order check, for the
 case where the operator's mask misses a term or a template carries one.
 
-If an llm stage drops a placeholder it was given (or inflects it: "jäniksen"), the
+Each llm stage is told to write the placeholders it is given unchanged
+(``joukahainen.keep_instruction``). If it still drops one (or inflects it: "jäniksen"), the
 swap would miss it, so Ukko asks that stage again with a fresh sample, up to
 ``KEEP_RETRIES`` times, then goes on with the last output. The trail records
 ``placeholder_retries`` and ``placeholder_lost``.
@@ -88,7 +89,8 @@ class Ukko:
                 for retry in range(KEEP_RETRIES + 1):
                     await bus.put(StageTask(seed_id=seed.id, run_id=req.run_id, attempt=attempt,
                                             stage_id=stage.id, template=stage.template,
-                                            input_text=text, lang=req.lang, retry=retry),
+                                            input_text=text, lang=req.lang, retry=retry,
+                                            keep=tuple(given)),
                                   channel=stage.owner)
                     result = await bus.get(StageResult, channel=UKKO)
                     if result.error:

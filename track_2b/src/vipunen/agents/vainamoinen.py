@@ -9,9 +9,8 @@ separately by Ilmarinen (S4) and never gates.
 """
 from __future__ import annotations
 
-from vipunen.agents.base import ApertusStage, retry_seed
+from vipunen.agents.base import ApertusStage, retry_seed, stage_prompt
 from vipunen.bus import StageResult, StageTask
-from vipunen.chain import render
 from vipunen.judge import REFUSAL
 
 MIN_CHARS = 500
@@ -42,7 +41,7 @@ class Vainamoinen(ApertusStage):
     max_retries = MAX_RETRIES
 
     async def compose(self, task: StageTask) -> StageResult:
-        prompt = render(task.template, task.input_text)
+        prompt = stage_prompt(task)
         tokens_in = tokens_out = 0
         for tries in range(self.max_retries + 1):
             seed = retry_seed(self.seed, task, tries)
