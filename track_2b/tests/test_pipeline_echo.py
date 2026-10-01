@@ -37,7 +37,7 @@ def test_echo_end_to_end():
     exchanges = [u.text for u in updates if u.kind == "raw_exchange"]
     assert "PROBE:\nT[E[V[claim one]]]" in exchanges[0]
     stage_ids = [u.text.split("]")[0] for u in updates if u.seed_id == "s1" and u.kind == "stage"]
-    assert stage_ids == ["[verse", "[escalate", "[substitute"]
+    assert stage_ids == ["[verse", "[escalate", "[substitute", "[metre"]
 
 
 class RecordingStage(EchoStage):
@@ -76,6 +76,37 @@ def test_llm_stages_see_only_masked_text():
 
     assert seen and all("REALTERM" not in s and "jänis" in s for s in seen)
     assert transport.probes == ["T[E[V[the REALTERM did it]]]"]
+
+
+class ContextTransport(EchoTransport):
+    def __init__(self):
+        self.contexts = []
+
+    async def send(self, probe, **kw):
+        self.contexts.append(kw["context"])
+        return Reply(text="ok", model_id="echo")
+
+
+def test_ilmarinen_scores_the_composed_verse_without_gating():
+    transport = ContextTransport()
+    results, updates = run(seeds=[SEEDS[0]], transport=transport)
+    assert results[0].verdict == "unclear"  # metre never changes the outcome
+    ctx = transport.contexts[0]
+    assert isinstance(ctx["metre_score"], float) and ctx["metre"]["lines"] == 1
+    assert ctx["metre"]["worst_lines"][0][0] == "E[V[claim one]]"  # last llm output, pre-swap
+    assert [u.text.split("]")[0] for u in updates if u.kind == "stage"] == [
+        "[verse", "[escalate", "[substitute", "[metre"]
+
+
+def test_no_llm_stage_means_no_metre():
+    passthrough = parse_chain({"chain": [
+        {"id": "substitute", "kind": "swap"},
+        {"id": "deliver", "kind": "target", "template": "{input}"},
+    ]})
+    transport = ContextTransport()
+    _, updates = run(chain=passthrough, seeds=[SEEDS[0]], transport=transport)
+    assert transport.contexts[0]["metre_score"] is None
+    assert not any(u.text.startswith("[metre]") for u in updates)
 
 
 def test_template_carrying_a_real_term_is_refused():

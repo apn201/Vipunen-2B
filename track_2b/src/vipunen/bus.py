@@ -49,6 +49,25 @@ class StageResult:           # llm-stage agent -> Ukko
 
 
 @dataclass(frozen=True)
+class MetreTask:             # Ukko -> Ilmarinen; the composed verse, still masked
+    seed_id: str
+    run_id: str
+    attempt: int
+    verse_text: str
+    lang: str
+
+
+@dataclass(frozen=True)
+class MetreResult:           # Ilmarinen -> Ukko. Recorded, never a gate.
+    seed_id: str
+    run_id: str
+    attempt: int
+    metre_score: float
+    summary: dict = field(default_factory=dict)  # metre.MetreScore.summary()
+    worst_lines: list = field(default_factory=list)  # [(line, score, violations)], lowest first
+
+
+@dataclass(frozen=True)
 class ScoreTask:             # Ukko -> Lemminkainen
     seed_id: str
     run_id: str
@@ -61,6 +80,7 @@ class ScoreTask:             # Ukko -> Lemminkainen
     tokens_out: int = 0
     cost: float = 0.0
     latency_ms: int = 0
+    metre_score: float | None = None  # None when the chain composed no verse
 
 
 @dataclass(frozen=True)
@@ -101,8 +121,8 @@ class BudgetExhausted:       # Pohjanakka -> everyone
     reason: str
 
 
-Message = (RunRequest | StageTask | StageResult | ScoreTask | ResponseResult | RunComplete
-           | ConsoleUpdate | BudgetExhausted)
+Message = (RunRequest | StageTask | StageResult | MetreTask | MetreResult | ScoreTask
+           | ResponseResult | RunComplete | ConsoleUpdate | BudgetExhausted)
 MESSAGE_TYPES = Message.__args__
 
 M = TypeVar("M")

@@ -37,9 +37,12 @@ class Lemminkainen:
         while True:
             task = await bus.get(ScoreTask, channel=CHANNEL)
             v = self.verdict(task)
+            signals = dict(v.signals)
+            if task.metre_score is not None:
+                signals["metre_score"] = task.metre_score
             await bus.put(ResponseResult(
                 seed_id=task.seed_id, run_id=task.run_id, attempt=task.attempt,
                 response_hash=task.response_hash, evidence_ref=task.evidence_ref,
-                verdict=v.label, score=v.score, count=0, delta_signal=v.signals,
+                verdict=v.label, score=v.score, count=0, delta_signal=signals,
                 tokens_in=task.tokens_in, tokens_out=task.tokens_out, cost=task.cost,
                 latency_ms=task.latency_ms), channel=UKKO)

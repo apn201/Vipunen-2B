@@ -4,8 +4,9 @@ Before every llm stage Ukko checks that no real term from the mask map is in the
 text the stage would see - a second guard behind the chain-order check, for the
 case where the operator's mask misses a term or a template carries one.
 
-After the target answers, Lemminkainen scores the response and Ukko reports the
-verdict. S4 adds the per-seed loop (one variable per attempt).
+Before delivery Ilmarinen scores the metre of the composed verse (the last llm
+stage's output, still masked). The score is recorded, never a gate. After the
+target answers, Lemminkainen scores the response and Ukko reports the verdict. S4 adds the per-seed loop (one variable per attempt).
 """
 from __future__ import annotations
 
@@ -14,10 +15,11 @@ from dataclasses import asdict
 
 from vipunen.agents import joukahainen
 from vipunen.agents.base import UKKO
+from vipunen.agents.ilmarinen import CHANNEL as ILMARINEN
 from vipunen.agents.lemminkainen import CHANNEL as LEMMINKAINEN
 from vipunen.budget import BudgetExceeded
-from vipunen.bus import (Bus, ConsoleUpdate, ResponseResult, RunComplete, RunRequest, ScoreTask,
-                         StageResult, StageTask)
+from vipunen.bus import (Bus, ConsoleUpdate, MetreResult, MetreTask, ResponseResult, RunComplete,
+                         RunRequest, ScoreTask, StageResult, StageTask)
 from vipunen.chain import Chain, render, validate
 from vipunen.client import ApertusError
 from vipunen.seeds import Seed, sha256_text
@@ -66,6 +68,7 @@ class Ukko:
         mask_map = self.mask_maps.get(seed.id, {})
         text = joukahainen.mask(seed.claim, mask_map)
         trail: list[dict] = []  # what each stage produced, for the evidence record
+        verse = ""  # the composed verse: last llm stage output, before swap-back
 
         for stage in self.chain.stages:
             if stage.kind == "llm":
@@ -80,7 +83,7 @@ class Ukko:
                 if result.error:
                     exc = BudgetExceeded if result.error.startswith("BudgetExceeded") else StageFailed
                     raise exc(f"stage {stage.id!r}: {result.error}")
-                text = result.output_text
+                text = verse = result.output_text
                 trail.append({"stage_id": stage.id, "owner": stage.owner, "output_text": text,
                               "tokens_in": result.tokens_in, "tokens_out": result.tokens_out,
                               **result.meta})
@@ -88,13 +91,27 @@ class Ukko:
                 text = self.unmask(text, mask_map)
                 trail.append({"stage_id": stage.id, "kind": "swap"})
             else:  # target - always last
+                metre = await self._metre(bus, req, attempt, verse) if verse else None
                 return await self._deliver(bus, req, seed, attempt, render(stage.template, text),
-                                           mask_map, trail)
+                                           mask_map, trail, metre)
             await self._say(bus, req, "stage", f"[{stage.id}] {text}")
         raise AssertionError("unreachable: validated chain ends with a target stage")
 
+    async def _metre(self, bus: Bus, req: RunRequest, attempt: int, verse: str) -> MetreResult:
+        await bus.put(MetreTask(seed_id=req.seed_id, run_id=req.run_id, attempt=attempt,
+                                verse_text=verse, lang=req.lang), channel=ILMARINEN)
+        metre = await bus.get(MetreResult, channel=UKKO)
+        s = metre.summary
+        await self._say(bus, req, "stage",
+                        f"[metre] {metre.metre_score:.2f} ({s.get('lines', 0)} lines, "
+                        f"8-syllable {s.get('octosyllabic', 0):.0%}, "
+                        f"alliterating {s.get('alliterating', 0):.0%}, "
+                        f"stress fit {s.get('stress_fit', 0):.0%})")
+        return metre
+
     async def _deliver(self, bus: Bus, req: RunRequest, seed: Seed, attempt: int, probe: str,
-                       mask_map: dict[str, str], trail: list[dict]) -> str:
+                       mask_map: dict[str, str], trail: list[dict],
+                       metre: MetreResult | None = None) -> str:
         context = {
             **self.tags, "chain_name": self.chain.name, "target_model": req.target_model,
             "claim": seed.claim, "claim_hash": seed.claim_hash, "claim_is_true": seed.claim_is_true,
@@ -103,6 +120,8 @@ class Ukko:
             "mask_map_ref": sha256_text(json.dumps(mask_map, sort_keys=True)) if mask_map else "",
             "chain_snapshot": [asdict(s) for s in self.chain.stages],
             "stages": trail,
+            "metre_score": metre.metre_score if metre else None,
+            "metre": {**metre.summary, "worst_lines": metre.worst_lines} if metre else None,
         }
         reply = await self.transport.send(probe, run_id=req.run_id, attempt=attempt,
                                           seed_id=seed.id, context=context)
@@ -114,7 +133,8 @@ class Ukko:
                                 evidence_ref=reply.evidence_ref,
                                 response_hash=sha256_text(reply.text),
                                 tokens_in=reply.tokens_in, tokens_out=reply.tokens_out,
-                                cost=reply.cost, latency_ms=reply.latency_ms),
+                                cost=reply.cost, latency_ms=reply.latency_ms,
+                                metre_score=metre.metre_score if metre else None),
                       channel=LEMMINKAINEN)
         scored = await bus.get(ResponseResult, channel=UKKO)
         flags = ", ".join(k for k, v in scored.delta_signal.items() if v is True)

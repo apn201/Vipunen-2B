@@ -11,6 +11,7 @@ from collections.abc import Callable, Iterable
 
 from vipunen.agents import joukahainen
 from vipunen.agents.base import StageAgent
+from vipunen.agents.ilmarinen import Ilmarinen
 from vipunen.agents.lemminkainen import Lemminkainen
 from vipunen.agents.pohjanakka import Pohjanakka
 from vipunen.agents.ukko import Ukko
@@ -40,7 +41,8 @@ async def run_batch(chain: Chain, seeds: Iterable[Seed], *, transport: Transport
     lemminkainen = Lemminkainen(by_id)
 
     workers = [asyncio.create_task(ukko.run(bus), name="ukko"),
-               asyncio.create_task(lemminkainen.run(bus), name="lemminkainen")]
+               asyncio.create_task(lemminkainen.run(bus), name="lemminkainen"),
+               asyncio.create_task(Ilmarinen().run(bus), name="ilmarinen")]
     workers += [asyncio.create_task(a.run(bus), name=a.owner) for a in stage_agents]
     if on_update:
         workers.append(asyncio.create_task(_relay(bus, on_update), name="console"))
