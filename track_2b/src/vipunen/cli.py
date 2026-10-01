@@ -3,6 +3,7 @@
 ``vipunen run --demo`` is what ``make run`` calls: the public neutral chain and
 the passthrough control arm over the public demo seeds, against the live endpoint.
 ``--echo`` runs the same pipeline offline. ``--estimate`` prices a run and exits.
+``vipunen console`` serves the operator page (S6).
 """
 from __future__ import annotations
 
@@ -198,11 +199,10 @@ def cmd_models(args: argparse.Namespace) -> int:
         return 1
 
 
-def cmd_pending(slice_: str):
-    def run(_: argparse.Namespace) -> int:
-        print(f"not implemented yet ({slice_})", file=sys.stderr)
-        return 2
-    return run
+def cmd_console(args: argparse.Namespace) -> int:
+    from vipunen.console.server import serve
+    serve(args.host, args.port)
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -239,7 +239,11 @@ def main(argv: list[str] | None = None) -> int:
     rp.add_argument("--pairs", action="store_true", help="also show fi vs en per claim")
     rp.set_defaults(func=cmd_report)
 
-    sub.add_parser("console", help="operator console on localhost").set_defaults(func=cmd_pending("S6"))
+    c = sub.add_parser("console", help="operator console on localhost")
+    c.add_argument("--host", default="127.0.0.1",
+                   help="bind address (Docker: 0.0.0.0, published on the host's 127.0.0.1 only)")
+    c.add_argument("--port", type=int, default=8000)
+    c.set_defaults(func=cmd_console)
 
     args = p.parse_args(argv)
     try:

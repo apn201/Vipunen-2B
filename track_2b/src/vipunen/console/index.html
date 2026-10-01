@@ -1,3 +1,428 @@
 <!doctype html>
-<!-- Vipunen operator console. Slice S6. -->
-<title>Vipunen</title>
+<!-- Vipunen operator console (S6). Served by vipunen/console/server.py on localhost. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vipunen console</title>
+<style>
+:root {
+  --bg: #f6f5f1; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6a65; --line: #dedcd4;
+  --accent: #1f4e79; --accent-ink: #ffffff; --ph: #fff0b8; --real: #d7ecff; --code: #f1efe8;
+  --fail: #b3261e; --partial: #b26a00; --pass: #2e7d32; --neutral: #5f6368;
+  --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161614; --panel: #1f1f1c; --ink: #ecebe6; --muted: #a09f98; --line: #34332e;
+    --accent: #7fb2e5; --accent-ink: #10202f; --ph: #5a4a10; --real: #17395a; --code: #26261f;
+    --fail: #f2867d; --partial: #f0b45a; --pass: #7fc983; --neutral: #a8abb0;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #161614; --panel: #1f1f1c; --ink: #ecebe6; --muted: #a09f98; --line: #34332e;
+  --accent: #7fb2e5; --accent-ink: #10202f; --ph: #5a4a10; --real: #17395a; --code: #26261f;
+  --fail: #f2867d; --partial: #f0b45a; --pass: #7fc983; --neutral: #a8abb0;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+       font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { display: flex; align-items: baseline; gap: 12px; padding: 12px 16px;
+         border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+header h1 { font-size: 17px; margin: 0; letter-spacing: .02em; }
+header .meta { color: var(--muted); font-size: 12px; }
+main { display: grid; grid-template-columns: minmax(300px, 400px) 1fr; gap: 16px; padding: 16px; }
+@media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+section.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
+label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+label:first-child { margin-top: 0; }
+textarea, input[type=text], select {
+  width: 100%; font: inherit; color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 6px; padding: 7px 8px; }
+textarea { min-height: 84px; resize: vertical; }
+textarea:focus, input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.row { display: flex; gap: 8px; align-items: center; }
+.row > * { flex: 1; min-width: 0; }
+.swap-row { display: grid; grid-template-columns: 1fr auto 1fr auto; gap: 6px; align-items: center; margin-bottom: 6px; }
+.swap-row .arrow { color: var(--muted); }
+button { font: inherit; border-radius: 6px; border: 1px solid var(--line); background: var(--bg);
+         color: var(--ink); padding: 6px 10px; cursor: pointer; }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+button:disabled { opacity: .5; cursor: default; }
+button.x { padding: 4px 8px; }
+.hint { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
+.warn { color: var(--partial); }
+details { margin-top: 10px; }
+summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+.check { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--ink); margin-top: 10px; }
+.actions { display: flex; gap: 8px; margin-top: 14px; }
+.actions .primary { flex: 1; }
+#status { font-size: 12px; color: var(--muted); margin-top: 8px; min-height: 1.4em; }
+#trace:empty::before { content: "Write a statement, add swaps, press Run. Each stage appears here as it finishes.";
+                       color: var(--muted); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 10px; }
+.card > .head { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line);
+                font-size: 13px; flex-wrap: wrap; }
+.card > .head .id { font-weight: 600; }
+.card > .head .kind { color: var(--muted); font-size: 12px; }
+.card > .head .right { margin-left: auto; color: var(--muted); font-size: 12px; }
+.card > .body { padding: 10px 12px; }
+.card.pending { opacity: .55; }
+.card.running > .head .right::after { content: " ..."; }
+pre { margin: 0; white-space: pre-wrap; word-break: break-word; font: 13px/1.5 var(--mono);
+      background: var(--code); padding: 8px 10px; border-radius: 6px; max-height: 420px; overflow: auto; }
+mark.ph { background: var(--ph); color: inherit; border-radius: 3px; padding: 0 2px; }
+mark.real { background: var(--real); color: inherit; border-radius: 3px; padding: 0 2px; }
+.sub { font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+table.swaps { border-collapse: collapse; width: 100%; font-size: 13px; }
+table.swaps td, table.swaps th { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+table.swaps th { color: var(--muted); font-weight: 500; font-size: 12px; }
+.badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-weight: 700; font-size: 12px;
+         letter-spacing: .04em; border: 1.5px solid currentColor; }
+.v-fail { color: var(--fail); } .v-partial { color: var(--partial); } .v-pass { color: var(--pass); }
+.v-other { color: var(--neutral); }
+.signals { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.signal { font-size: 12px; padding: 1px 7px; border-radius: 4px; background: var(--code); color: var(--muted); }
+.signal.on { color: var(--ink); font-weight: 600; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; font-size: 12px; margin-top: 8px; }
+.kv dt { color: var(--muted); } .kv dd { margin: 0; font-family: var(--mono); word-break: break-all; }
+.error { border-color: var(--fail); }
+.error .body { color: var(--fail); }
+#history { margin-top: 14px; }
+#history button { display: block; width: 100%; text-align: left; margin-top: 4px; font-size: 12px;
+                  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Vipunen console</h1>
+  <span class="meta" id="hdr">loading...</span>
+</header>
+<main>
+  <section class="panel" aria-label="Run">
+    <label for="statement">Statement</label>
+    <textarea id="statement" placeholder="Jänis on valkoinen."></textarea>
+    <label for="preset">or load a seed</label>
+    <select id="preset"><option value="">-</option></select>
+
+    <label>Swaps at the substitute stage (before the target prompt)</label>
+    <div id="swaps"></div>
+    <button type="button" id="addSwap">+ swap</button>
+    <p class="hint">Left: the word in the statement. The verse and escalation stages see only this.
+      Right: what replaces it in the final prompt to the target model.</p>
+    <p class="hint warn" id="swapBodyWarn" hidden></p>
+
+    <div class="row">
+      <div><label for="chain">Chain</label><select id="chain"></select></div>
+      <div><label for="model">Target model</label><select id="model"></select></div>
+    </div>
+    <div class="row">
+      <div><label for="lang">Language</label><select id="lang"></select></div>
+      <div><label for="category">Category</label><select id="category"></select></div>
+      <div><label for="endpoint">Endpoint</label><select id="endpoint"></select></div>
+    </div>
+    <label class="check"><input type="checkbox" id="isTrue"> statement is true (control)</label>
+    <details>
+      <summary>Scoring regexes (optional)</summary>
+      <label for="passRx">pass_regex: ground truth present in the answer</label>
+      <input type="text" id="passRx" spellcheck="false">
+      <label for="failRx">fail_regex: the claim restated as fact</label>
+      <input type="text" id="failRx" spellcheck="false">
+      <p class="hint">Without them the verdict rests on affirm / negate / refusal openers only.</p>
+    </details>
+    <label class="check"><input type="checkbox" id="echo"> offline (echo stages and target, no spend)</label>
+
+    <div class="actions">
+      <button class="primary" id="run">Run</button>
+      <button id="stop" disabled>Stop</button>
+    </div>
+    <div id="status"></div>
+    <div id="history"></div>
+  </section>
+
+  <section aria-label="Trace" aria-live="polite">
+    <div id="trace"></div>
+  </section>
+</main>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+let OPTS = null, controller = null, runState = null;
+const history = [];
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+function rxEsc(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+
+// Highlight placeholders (yellow) and real terms (blue) in a stage text.
+function highlight(text, pairs) {
+  const terms = [];
+  for (const p of pairs) {
+    if (p.placeholder) terms.push([p.placeholder, "ph"]);
+    if (p.real) terms.push([p.real, "real"]);
+  }
+  if (!terms.length) return esc(text);
+  terms.sort((a, b) => b[0].length - a[0].length);
+  const re = new RegExp(terms.map(t => rxEsc(t[0])).join("|"), "giu");
+  const cls = new Map(terms.map(t => [t[0].toLowerCase(), t[1]]));
+  let out = "", last = 0;
+  for (const m of String(text).matchAll(re)) {
+    out += esc(text.slice(last, m.index)) + `<mark class="${cls.get(m[0].toLowerCase())}">${esc(m[0])}</mark>`;
+    last = m.index + m[0].length;
+  }
+  return out + esc(text.slice(last));
+}
+
+function fill(sel, values, selected) {
+  sel.innerHTML = values.map(v => `<option${v === selected ? " selected" : ""}>${esc(v)}</option>`).join("");
+}
+
+function addSwap(ph = "", real = "") {
+  const row = document.createElement("div");
+  row.className = "swap-row";
+  row.innerHTML = `<input type="text" class="ph" placeholder="Jänis" aria-label="placeholder">
+    <span class="arrow">&rarr;</span>
+    <input type="text" class="real" placeholder="Rakkaus" aria-label="real term">
+    <button type="button" class="x" aria-label="remove swap">&times;</button>`;
+  row.querySelector(".ph").value = ph;
+  row.querySelector(".real").value = real;
+  row.querySelector(".x").onclick = () => { row.remove(); if (!$("swaps").children.length) addSwap(); };
+  $("swaps").appendChild(row);
+}
+function swapPairs() {
+  return [...$("swaps").children].map(r => ({
+    placeholder: r.querySelector(".ph").value.trim(), real: r.querySelector(".real").value.trim(),
+  })).filter(p => p.placeholder || p.real);
+}
+
+async function loadOptions() {
+  const r = await fetch("/api/options");
+  OPTS = await r.json();
+  fill($("chain"), OPTS.chains, OPTS.chains.find(c => c.startsWith("private/")) || OPTS.chains[0]);
+  fill($("model"), OPTS.models, OPTS.default_model);
+  fill($("lang"), OPTS.langs, "fi");
+  fill($("category"), OPTS.categories, "history");
+  fill($("endpoint"), OPTS.endpoints, "auto");
+  $("preset").innerHTML = `<option value="">-</option>` +
+    OPTS.seeds.map((s, i) => `<option value="${i}">${esc(s.id)}: ${esc(s.claim.slice(0, 60))}</option>`).join("");
+  if (!OPTS.has_key) $("echo").checked = true;
+  const warn = $("swapBodyWarn");
+  warn.hidden = OPTS.swap_body;
+  warn.textContent = `No swap body at ${OPTS.swap_path}: runs with swaps are refused until it exists.`;
+  header();
+}
+function header(budget) {
+  if (budget) OPTS.budget = budget;
+  $("hdr").textContent = `budget ${OPTS.budget} · ${OPTS.has_key ? "key set" : "no API key (offline only)"}` +
+    ` · swap body ${OPTS.swap_body ? "loaded" : "missing"}`;
+}
+
+$("preset").onchange = () => {
+  const s = OPTS.seeds[$("preset").value];
+  if (!s) return;
+  $("statement").value = s.claim;
+  $("lang").value = s.lang; $("category").value = s.category;
+  $("isTrue").checked = s.claim_is_true;
+  $("passRx").value = s.pass_regex; $("failRx").value = s.fail_regex;
+};
+
+function card(cls, head, body = "") {
+  const el = document.createElement("div");
+  el.className = "card " + cls;
+  el.innerHTML = `<div class="head">${head}</div><div class="body">${body}</div>`;
+  $("trace").appendChild(el);
+  return el;
+}
+
+function verdictBadge(v) {
+  const c = ["fail", "partial", "pass"].includes(v) ? "v-" + v : "v-other";
+  return `<span class="badge ${c}">${esc(String(v).toUpperCase())}</span>`;
+}
+
+// --- event handlers ------------------------------------------------------
+const on = {
+  start(d) {
+    runState.stages = d.stages;
+    runState.cards = {};
+    $("status").textContent = `${d.endpoint} · target ${d.target_model}` + (d.stage_model ? ` · stages on ${d.stage_model}` : "");
+    for (const s of d.stages) {
+      const owner = s.owner ? ` · ${s.owner}` : "";
+      runState.cards[s.id] = card("pending",
+        `<span class="id">${esc(s.id)}</span><span class="kind">${esc(s.kind)}${esc(owner)}</span><span class="right"></span>`);
+    }
+    runState.next = 0;
+    markRunning();
+  },
+  update(d) {
+    if (d.kind === "stage") {
+      const m = d.text.match(/^\[([^\]]+)\] ([\s\S]*)$/);
+      if (!m) return;
+      let el = runState.cards[m[1]];
+      if (!el) {  // a note between stages (e.g. Ilmarinen's metre score): its own small card
+        const prev = runState.stages[runState.next - 1];
+        el = card("done", `<span class="id">${esc(m[1])}</span><span class="kind">note</span><span class="right"></span>`,
+                  `<pre>${esc(m[2])}</pre>`);
+        if (prev) runState.cards[prev.id].after(el);
+        return;
+      }
+      el.className = "card done";
+      el.querySelector(".right").textContent = `${m[2].length} chars`;
+      const stage = runState.stages.find(s => s.id === m[1]);
+      const label = stage.kind === "swap" ? "after swap" : "output";
+      el.querySelector(".body").insertAdjacentHTML("beforeend",
+        `<div class="sub">${label}</div><pre>${highlight(m[2], runState.pairs)}</pre>`);
+      runState.next = runState.stages.indexOf(stage) + 1;
+      markRunning();
+    } else if (d.kind === "raw_exchange") {
+      const m = d.text.match(/^PROBE:\n([\s\S]*?)\n\nRESPONSE \(([^)]*)\):\n([\s\S]*)$/);
+      const target = runState.stages[runState.stages.length - 1];
+      const el = runState.cards[target.id];
+      el.className = "card done";
+      el.querySelector(".right").textContent = m ? m[2] : "";
+      el.querySelector(".body").innerHTML = m
+        ? `<div class="sub">prompt sent to the target</div><pre>${highlight(m[1], runState.pairs)}</pre>
+           <div class="sub">answer</div><pre>${highlight(m[3], runState.pairs)}</pre>`
+        : `<pre>${esc(d.text)}</pre>`;
+      runState.answerCard = el;
+    } else if (d.kind === "verdict") {
+      runState.verdictText = d.text;
+    } else if (d.kind === "error") {
+      card("error", `<span class="id">refused / error</span>`, esc(d.text));
+    }
+  },
+  swap(d) {
+    const el = runState.cards[runState.stages.find(s => s.kind === "swap").id];
+    const rows = d.pairs.map(p => {
+      const note = p.found === 0 ? `<span class="warn">not found: inflected or dropped by the verse?</span>`
+                 : p.left ? `<span class="warn">${p.left} left unswapped</span>` : "ok";
+      return `<tr><td><mark class="ph">${esc(p.placeholder)}</mark></td><td><mark class="real">${esc(p.real)}</mark></td>
+              <td>${p.found}</td><td>${p.real_after}</td><td>${note}</td></tr>`;
+    }).join("");
+    el.querySelector(".body").insertAdjacentHTML("afterbegin", d.pairs.length
+      ? `<table class="swaps"><tr><th>placeholder</th><th>real term</th><th>found</th><th>real in output</th><th></th></tr>${rows}</table>`
+      : `<div class="sub">no swaps: text passes through</div>`);
+  },
+  done(d) {
+    header(d.budget);
+    const rec = d.record || {};
+    const signals = rec.signals || {};
+    const sig = Object.entries(signals).filter(([, v]) => typeof v === "boolean")
+      .map(([k, v]) => `<span class="signal${v ? " on" : ""}">${v ? "" : "no "}${esc(k)}</span>`).join("");
+    let body = `${verdictBadge(d.verdict)}`;
+    if (rec.score != null) body += ` <span class="kind">score ${rec.score}</span>`;
+    if (!sig && runState.verdictText) body += ` <span class="kind">${esc(runState.verdictText)}</span>`;
+    if (sig) body += `<div class="signals">${sig}</div>`;
+    if (rec.reasoning_text) body += `<details><summary>reasoning trace (${rec.reasoning_text.length} chars)</summary><pre>${esc(rec.reasoning_text)}</pre></details>`;
+    if (d.record) {
+      const kv = [["served", rec.served_model], ["endpoint", rec.endpoint], ["source", rec.response_source],
+                  ["finish", rec.finish_reason], ["tokens", `${rec.tokens_in} in / ${rec.tokens_out} out`],
+                  ["cost", rec.cost_usd != null ? `${rec.cost_usd} USD` : ""], ["latency", `${rec.latency_ms} ms`],
+                  ["evidence", rec.evidence_ref]];
+      body += `<dl class="kv">${kv.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl>`;
+      for (const st of rec.stages || []) {
+        const el = runState.cards[st.stage_id];
+        if (!el) continue;
+        const extra = Object.entries(st).filter(([k]) => !["stage_id", "owner", "kind", "output_text"].includes(k))
+          .map(([k, v]) => `${k} ${v}`).join(" · ");
+        if (extra) el.querySelector(".right").textContent += ` · ${extra}`;
+      }
+    }
+    card("verdict", `<span class="id">verdict</span>`, body);
+    history.unshift({ input: runState.input, verdict: d.verdict });
+    renderHistory();
+    $("status").textContent = `done: ${d.verdict}`;
+  },
+  fail(d) {
+    card("error", `<span class="id">run failed</span>`, esc(d.error));
+    $("status").textContent = "failed";
+  },
+};
+
+function markRunning() {
+  const s = runState.stages[runState.next];
+  if (s && runState.cards[s.id].classList.contains("pending")) {
+    runState.cards[s.id].className = "card running";
+    runState.cards[s.id].querySelector(".right").textContent = s.kind === "swap" ? "" : "waiting for Apertus";
+  }
+}
+
+function renderHistory() {
+  $("history").innerHTML = history.length ? `<div class="sub">this session</div>` : "";
+  history.slice(0, 12).forEach(h => {
+    const b = document.createElement("button");
+    const sw = h.input.swaps.map(p => `${p.placeholder}→${p.real}`).join(", ");
+    b.textContent = `${h.verdict.toUpperCase()} · ${h.input.statement}${sw ? " · " + sw : ""}`;
+    b.onclick = () => restore(h.input);
+    $("history").appendChild(b);
+  });
+}
+function restore(inp) {
+  $("statement").value = inp.statement;
+  $("swaps").innerHTML = "";
+  (inp.swaps.length ? inp.swaps : [{}]).forEach(p => addSwap(p.placeholder, p.real));
+  for (const [id, k] of [["chain","chain"],["model","model"],["lang","lang"],["category","category"],["endpoint","endpoint"],["passRx","pass_regex"],["failRx","fail_regex"]])
+    $(id).value = inp[k] || "";
+  $("isTrue").checked = inp.claim_is_true; $("echo").checked = inp.echo;
+}
+
+// --- run -----------------------------------------------------------------
+async function run() {
+  const input = {
+    statement: $("statement").value.trim(), swaps: swapPairs(),
+    chain: $("chain").value, model: $("model").value, endpoint: $("endpoint").value,
+    lang: $("lang").value, category: $("category").value, claim_is_true: $("isTrue").checked,
+    pass_regex: $("passRx").value, fail_regex: $("failRx").value, echo: $("echo").checked,
+  };
+  if (!input.statement) { $("status").textContent = "write a statement first"; return; }
+  const missing = input.swaps.filter(p => p.placeholder && !new RegExp(rxEsc(p.placeholder), "iu").test(input.statement));
+  $("trace").innerHTML = "";
+  runState = { input, pairs: input.swaps, stages: [], cards: {} };
+  if (missing.length)
+    card("error", `<span class="id">note</span>`,
+      `${missing.map(p => esc(p.placeholder)).join(", ")} is not in the statement; that swap only applies if a stage writes it.`);
+  $("run").disabled = true; $("stop").disabled = false;
+  $("status").textContent = "starting...";
+  controller = new AbortController();
+  try {
+    const r = await fetch("/api/run", { method: "POST", headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify(input), signal: controller.signal });
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({ error: r.statusText }));
+      on.fail({ error: e.error });
+      return;
+    }
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf("\n\n")) >= 0) {
+        const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
+        const ev = (chunk.match(/^event: (.*)$/m) || [])[1];
+        const data = (chunk.match(/^data: (.*)$/m) || [])[1];
+        if (ev && data && on[ev]) on[ev](JSON.parse(data));
+      }
+    }
+  } catch (e) {
+    if (e.name === "AbortError") $("status").textContent = "stopped (calls already sent still count)";
+    else on.fail({ error: String(e) });
+  } finally {
+    $("run").disabled = false; $("stop").disabled = true;
+    controller = null;
+  }
+}
+
+$("run").onclick = run;
+$("stop").onclick = () => controller && controller.abort();
+$("addSwap").onclick = () => addSwap();
+$("statement").addEventListener("keydown", e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) run(); });
+addSwap();
+loadOptions().catch(e => { $("hdr").textContent = "cannot reach the server: " + e; });
+</script>
+</body>
+</html>

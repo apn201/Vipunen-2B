@@ -1,4 +1,365 @@
-"""Console server: thin SSE/websocket layer over the bus. No pipeline logic. Binds 127.0.0.1 by default.
+"""Console server: a thin streaming layer over ``pipeline.run_batch``. No pipeline logic.
 
-Slice: S6. Not implemented yet.
+Binds 127.0.0.1 by default. In Docker it listens on 0.0.0.0 inside the container
+and ``make console`` publishes the port on the host's 127.0.0.1 only.
+
+- ``GET  /``             the single-file page (index.html)
+- ``GET  /api/options``  chains, models, seeds, budget, whether a swap body exists
+- ``POST /api/run``      one statement through one chain; the answer is a
+                         ``text/event-stream`` of stage / swap / probe / verdict events
+
+The operator types the statement and the swap pairs (placeholder -> real term).
+The pairs become the run's mask map: llm stages see the placeholder, Joukahainen's
+swap puts the real term in just before the target prompt. ``unmask()`` is the
+operator's private body, loaded from ``private/unmask.py`` (``VIPUNEN_UNMASK``);
+without it the console refuses a run that has swap pairs.
+
+One run at a time. Closing the page aborts the run.
 """
+from __future__ import annotations
+
+import asyncio
+import importlib.util
+import json
+import re
+import threading
+from collections.abc import Callable
+from datetime import datetime, timezone
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
+
+from vipunen.agents.base import EchoStage
+from vipunen.agents.louhi import Louhi
+from vipunen.agents.vainamoinen import Vainamoinen
+from vipunen.budget import Budget
+from vipunen.bus import ConsoleUpdate
+from vipunen.chain import Chain, ChainError, LLM_OWNERS, load_chain
+from vipunen.client import ApertusClient
+from vipunen.config import MODELS, SettingsError, load_settings, require_key
+from vipunen.pipeline import run_batch
+from vipunen.seeds import CATEGORIES, LANGS, Seed, SeedError, load_seeds
+from vipunen.transport import EchoTransport, LiveTransport
+
+PAGE = Path(__file__).with_name("index.html")
+CHAIN_GLOBS = ("config/*.yaml", "private/*.yaml")
+SEED_GLOB = "data/seeds/*.yaml"
+UNMASK_PATH = "private/unmask.py"
+ENDPOINTS = ("auto", "llm", "cscs", "publicai")
+MAX_BODY = 64_000
+
+Unmask = Callable[[str, dict[str, str]], str]
+Emit = Callable[[str, dict], None]
+
+
+class RunRefused(ValueError):
+    """The request cannot run as given; nothing was sent."""
+
+
+class ClientGone(RuntimeError):
+    """The page closed the stream."""
+
+
+def load_unmask(path: str | Path) -> Unmask | None:
+    """The operator's private swap body: a module with ``unmask(text, mask_map)``."""
+    path = Path(path)
+    if not path.is_file():
+        return None
+    spec = importlib.util.spec_from_file_location("vipunen_private_unmask", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.unmask
+
+
+def chain_files(root: Path) -> list[str]:
+    """Chain YAMLs that load and pass the guard. Seeds/masks in private/ are skipped."""
+    out = []
+    for pattern in CHAIN_GLOBS:
+        for p in sorted(root.glob(pattern)):
+            try:
+                load_chain(p)
+            except (ChainError, OSError, ValueError, AttributeError, TypeError):
+                continue
+            out.append(p.relative_to(root).as_posix())
+    return out
+
+
+def seed_presets(root: Path) -> list[dict]:
+    out = []
+    for p in sorted(root.glob(SEED_GLOB)):
+        try:
+            seeds = load_seeds(p)
+        except (SeedError, OSError):
+            continue
+        out += [{"id": s.id, "claim": s.claim, "lang": s.lang, "category": s.category,
+                 "claim_is_true": s.claim_is_true, "pass_regex": s.pass_regex,
+                 "fail_regex": s.fail_regex, "file": p.name} for s in seeds]
+    seen: set[tuple[str, str]] = set()  # demo.yaml repeats some history seeds
+    return [s for s in out if (s["id"], s["claim"]) not in seen and not seen.add((s["id"], s["claim"]))]
+
+
+def count_ci(text: str, term: str) -> int:
+    return len(re.findall(re.escape(term), text, re.I)) if term else 0
+
+
+def parse_request(body: dict, chains: list[str]) -> tuple[Seed, dict[str, str], dict]:
+    """Validate the page's JSON. Returns the ad-hoc seed, the mask map, run options."""
+    claim = str(body.get("statement", "")).strip()
+    if not claim:
+        raise RunRefused("statement is empty")
+    lang = body.get("lang") or "fi"
+    category = body.get("category") or "history"
+    if lang not in LANGS:
+        raise RunRefused(f"lang must be one of {LANGS}")
+    if category not in CATEGORIES:
+        raise RunRefused(f"category must be one of {CATEGORIES}")
+    for name in ("pass_regex", "fail_regex"):
+        try:
+            re.compile(body.get(name) or "")
+        except re.error as e:
+            raise RunRefused(f"{name} does not compile: {e}") from e
+
+    mask_map: dict[str, str] = {}
+    for pair in body.get("swaps") or []:
+        placeholder = str(pair.get("placeholder", "")).strip()
+        real = str(pair.get("real", "")).strip()
+        if not placeholder and not real:
+            continue
+        if not placeholder or not real:
+            raise RunRefused("each swap needs both a placeholder and a real term")
+        if placeholder in mask_map:
+            raise RunRefused(f"placeholder {placeholder!r} given twice")
+        if placeholder.lower() == real.lower():
+            raise RunRefused(f"{placeholder!r} swaps to itself")
+        mask_map[placeholder] = real
+
+    chain = body.get("chain") or (chains[0] if chains else "")
+    if chain not in chains:
+        raise RunRefused(f"unknown chain {chain!r}")
+    model = body.get("model") or None
+    if model and model not in MODELS:
+        raise RunRefused(f"unknown model {model!r}")
+    endpoint = body.get("endpoint") or "auto"
+    if endpoint not in ENDPOINTS:
+        raise RunRefused(f"endpoint must be one of {ENDPOINTS}")
+
+    seed = Seed(id=str(body.get("seed_id") or "console"), claim=claim, category=category,
+                lang=lang, claim_is_true=bool(body.get("claim_is_true")),
+                pass_regex=body.get("pass_regex") or "", fail_regex=body.get("fail_regex") or "")
+    opts = {"chain": chain, "model": model, "endpoint": endpoint, "echo": bool(body.get("echo"))}
+    return seed, mask_map, opts
+
+
+def evidence_summary(path: Path) -> dict | None:
+    """What the page shows from the verbatim record after the run."""
+    if not path.is_file():
+        return None
+    rec = json.loads(path.read_text(encoding="utf-8"))
+    keys = ("run_id", "status", "endpoint", "target_model", "served_model", "probe_text",
+            "response_text", "response_source", "reasoning_text", "finish_reason", "tokens_in",
+            "tokens_out", "cost_usd", "latency_ms", "verdict", "score", "signals", "stages")
+    return {k: rec.get(k) for k in keys} | {"evidence_ref": path.as_posix()}
+
+
+async def run_console(seed: Seed, mask_map: dict[str, str], opts: dict, *, root: Path,
+                      unmask: Unmask | None, emit: Emit, env: dict | None = None) -> str:
+    """One statement through one chain. Emits events; returns the verdict."""
+    chain: Chain = load_chain(root / opts["chain"])
+    if mask_map and unmask is None:
+        raise RunRefused(f"swap pairs given but no swap body: put unmask(text, mask_map) "
+                         f"in {UNMASK_PATH} (or set VIPUNEN_UNMASK)")
+
+    swap_id = chain.stages[chain.swap_index].id
+    swap_report: list[dict] = []  # sent just before the swap stage's own update, so in order
+
+    def swap(text: str, mm: dict[str, str]) -> str:
+        found = {ph: count_ci(text, ph) for ph in mm}
+        out = unmask(text, mm) if mm else text
+        swap_report.append({"pairs": [{"placeholder": ph, "real": real, "found": found[ph],
+                                       "left": count_ci(out, ph), "real_after": count_ci(out, real)}
+                                      for ph, real in mm.items()]})
+        return out
+
+    settings = load_settings(env, endpoint=opts["endpoint"], target_model=opts["model"])
+    client = budget = None
+    try:
+        if opts["echo"]:
+            transport, agents, ep_name = EchoTransport(), [EchoStage(o) for o in LLM_OWNERS], "echo"
+        else:
+            require_key(settings)
+            budget = Budget.from_settings(settings)
+            client = ApertusClient(settings.endpoint, timeout_s=settings.timeout_s)
+            ep_name = settings.endpoint.name
+            transport = LiveTransport(client, budget, model=settings.target_model,
+                                      evidence_dir=root / settings.evidence_dir,
+                                      max_tokens=settings.target_max_tokens,
+                                      temperature=settings.target_temperature, seed=settings.seed)
+            stage_kw = dict(model=settings.stage_model, max_tokens=settings.stage_max_tokens,
+                            temperature=settings.stage_temperature, seed=settings.seed)
+            agents = [Vainamoinen(client, budget, **stage_kw), Louhi(client, budget, **stage_kw)]
+
+        emit("start", {"chain": opts["chain"], "stages": [{"id": s.id, "kind": s.kind, "owner": s.owner}
+                                                          for s in chain.stages],
+                       "endpoint": ep_name, "target_model": transport.model_id,
+                       "stage_model": None if opts["echo"] else settings.stage_model,
+                       "budget": budget.status() if budget else "offline (echo)"})
+
+        def on_update(u: ConsoleUpdate) -> None:
+            if u.kind == "stage" and u.text.startswith(f"[{swap_id}]") and swap_report:
+                emit("swap", swap_report.pop(0))
+            emit("update", {"kind": u.kind, "text": u.text, "run_id": u.run_id})
+
+        batch_id = "console-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        results = await run_batch(chain, [seed], transport=transport, stage_agents=agents,
+                                  target_model=transport.model_id,
+                                  mask_maps={seed.id: mask_map} if mask_map else None,
+                                  on_update=on_update,
+                                  gate=budget.gate if budget else (lambda: None),
+                                  unmask=swap, tags={"batch_id": batch_id, "endpoint": ep_name,
+                                                     "source": "console"})
+        verdict = results[0].verdict if results else "budget"
+        record = None
+        if results and not opts["echo"]:
+            record = evidence_summary(transport.record_path(results[0].run_id, 1))
+        emit("done", {"verdict": verdict, "record": record,
+                      "budget": budget.status() if budget else "offline (echo)"})
+        return verdict
+    finally:
+        if client:
+            await client.aclose()
+
+
+class ConsoleHandler(BaseHTTPRequestHandler):
+    server: "ConsoleServer"
+    protocol_version = "HTTP/1.1"
+
+    def log_message(self, fmt: str, *args: Any) -> None:  # quiet; the page is the log
+        if self.server.verbose:
+            super().log_message(fmt, *args)
+
+    def _send(self, status: int, body: bytes, ctype: str) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _json(self, status: int, data: dict) -> None:
+        self._send(status, json.dumps(data, ensure_ascii=False).encode("utf-8"),
+                   "application/json; charset=utf-8")
+
+    def do_GET(self) -> None:
+        if self.path in ("/", "/index.html"):
+            self._send(200, PAGE.read_bytes(), "text/html; charset=utf-8")
+        elif self.path == "/api/options":
+            self._json(200, self.server.options())
+        else:
+            self._json(404, {"error": "not found"})
+
+    def do_POST(self) -> None:
+        if self.path != "/api/run":
+            self._json(404, {"error": "not found"})
+            return
+        length = int(self.headers.get("Content-Length") or 0)
+        if length > MAX_BODY:
+            self._json(413, {"error": "request too large"})
+            return
+        try:
+            body = json.loads(self.rfile.read(length) or b"{}")
+            seed, mask_map, opts = parse_request(body, chain_files(self.server.root))
+        except (json.JSONDecodeError, RunRefused, AttributeError, TypeError) as e:
+            self._json(400, {"error": str(e)})
+            return
+        if not self.server.busy.acquire(blocking=False):
+            self._json(HTTPStatus.CONFLICT, {"error": "a run is already in progress"})
+            return
+        try:
+            self._stream(seed, mask_map, opts)
+        finally:
+            self.server.busy.release()
+
+    def _stream(self, seed: Seed, mask_map: dict[str, str], opts: dict) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.close_connection = True
+
+        def emit(event: str, data: dict) -> None:
+            chunk = f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+            try:
+                self.wfile.write(chunk.encode("utf-8"))
+                self.wfile.flush()
+            except OSError as e:
+                raise ClientGone("page closed the stream") from e
+
+        try:
+            asyncio.run(run_console(seed, mask_map, opts, root=self.server.root,
+                                    unmask=self.server.unmask(), emit=emit, env=self.server.env))
+        except ClientGone:
+            pass
+        except RuntimeError as e:  # run_batch: an agent stopped (incl. the relay when the page left)
+            if not isinstance(e.__cause__, ClientGone):
+                self._try_emit(emit, f"{e}: {e.__cause__!r}")
+        except (RunRefused, SettingsError, ChainError, OSError) as e:
+            self._try_emit(emit, str(e))
+        except Exception as e:  # show it on the page instead of a silently dead stream
+            self._try_emit(emit, f"{type(e).__name__}: {e}")
+            raise
+
+    @staticmethod
+    def _try_emit(emit: Emit, message: str) -> None:
+        try:
+            emit("fail", {"error": message})
+        except ClientGone:
+            pass
+
+
+class ConsoleServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def __init__(self, addr: tuple[str, int], *, root: Path = Path("."),
+                 unmask_path: str | Path = UNMASK_PATH, unmask: Unmask | None = None,
+                 env: dict | None = None, verbose: bool = False) -> None:
+        super().__init__(addr, ConsoleHandler)
+        self.root = Path(root)
+        self.unmask_path = Path(unmask_path)
+        self._unmask = unmask      # tests inject one; otherwise loaded per run, so edits apply
+        self.env = env
+        self.verbose = verbose
+        self.busy = threading.Lock()
+
+    def unmask(self) -> Unmask | None:
+        if self._unmask is not None:
+            return self._unmask
+        p = self.unmask_path if self.unmask_path.is_absolute() else self.root / self.unmask_path
+        return load_unmask(p)
+
+    def options(self) -> dict:
+        try:
+            settings = load_settings(self.env)
+            default_model, budget = settings.target_model, Budget.from_settings(settings).status()
+            has_key = bool(settings.endpoint.api_key)
+        except (SettingsError, OSError, ValueError) as e:
+            default_model, budget, has_key = "", f"unavailable: {e}", False
+        return {"chains": chain_files(self.root), "models": list(MODELS),
+                "default_model": default_model, "endpoints": list(ENDPOINTS),
+                "langs": list(LANGS), "categories": list(CATEGORIES),
+                "seeds": seed_presets(self.root), "budget": budget, "has_key": has_key,
+                "swap_body": self.unmask() is not None, "swap_path": self.unmask_path.as_posix()}
+
+
+def serve(host: str = "127.0.0.1", port: int = 8000, root: Path = Path(".")) -> None:
+    server = ConsoleServer((host, port), root=root)
+    shown = "localhost" if host in ("127.0.0.1", "0.0.0.0") else host
+    print(f"Vipunen console on http://{shown}:{port}/  (Ctrl+C to stop)", flush=True)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+

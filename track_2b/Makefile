@@ -51,9 +51,10 @@ models: build
 ping: build
 	$(DOCKER_RUN) $(IMAGE) vipunen models --ping
 
-# Operator console on localhost only. Mounts the gitignored private/ tree.
+# Operator console on http://localhost:8000 only. Mounts the gitignored private/ tree
+# (operator chain, swap body private/unmask.py, evidence).
 console: build
-	$(DOCKER_RUN) -p 127.0.0.1:8000:8000 $(IMAGE) vipunen console
+	$(DOCKER_RUN) -p 127.0.0.1:8000:8000 $(IMAGE) vipunen console --host 0.0.0.0
 
 shell: build
 	$(DOCKER_RUN) -it $(IMAGE) bash

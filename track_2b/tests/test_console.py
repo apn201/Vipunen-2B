@@ -1,0 +1,112 @@
+"""S6 console: request parsing, and one offline run through the real HTTP server."""
+import json
+import threading
+import urllib.error
+import urllib.request
+
+import pytest
+
+from vipunen.console.server import ConsoleServer, RunRefused, parse_request
+
+CHAINS = ["config/mutations.example.yaml", "config/passthrough.yaml"]
+
+
+def swap_back(text, mask_map):  # stand-in for the operator's private body
+    for placeholder, real in mask_map.items():
+        text = text.replace(placeholder, real)
+    return text
+
+
+def test_parse_request_builds_seed_and_mask_map():
+    seed, mask_map, opts = parse_request({
+        "statement": " Jänis on valkoinen. ", "lang": "fi", "category": "culture",
+        "swaps": [{"placeholder": "Jänis", "real": "Rakkaus"}, {"placeholder": "", "real": ""}],
+        "chain": CHAINS[0], "echo": True}, CHAINS)
+    assert seed.claim == "Jänis on valkoinen."
+    assert (seed.lang, seed.category) == ("fi", "culture")
+    assert mask_map == {"Jänis": "Rakkaus"}
+    assert opts["chain"] == CHAINS[0] and opts["echo"] is True
+
+
+@pytest.mark.parametrize("body, msg", [
+    ({"statement": "  "}, "empty"),
+    ({"statement": "x", "swaps": [{"placeholder": "Jänis", "real": ""}]}, "both"),
+    ({"statement": "x", "swaps": [{"placeholder": "a", "real": "A"}]}, "itself"),
+    ({"statement": "x", "chain": "private/other.yaml"}, "unknown chain"),
+    ({"statement": "x", "model": "gpt-4"}, "unknown model"),
+    ({"statement": "x", "pass_regex": "("}, "does not compile"),
+])
+def test_parse_request_refuses(body, msg):
+    with pytest.raises(RunRefused, match=msg):
+        parse_request(body, CHAINS)
+
+
+@pytest.fixture
+def server():
+    srv = ConsoleServer(("127.0.0.1", 0), unmask=swap_back, env={})
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    yield f"http://127.0.0.1:{srv.server_address[1]}"
+    srv.shutdown()
+    srv.server_close()
+
+
+def post(url, body):
+    req = urllib.request.Request(url + "/api/run", data=json.dumps(body).encode(),
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        raw = r.read().decode("utf-8")
+    events = []
+    for chunk in raw.strip().split("\n\n"):
+        lines = dict(line.split(": ", 1) for line in chunk.splitlines())
+        events.append((lines["event"], json.loads(lines["data"])))
+    return events
+
+
+def test_options(server):
+    with urllib.request.urlopen(server + "/api/options", timeout=10) as r:
+        opts = json.load(r)
+    assert set(CHAINS) <= set(opts["chains"])
+    assert opts["swap_body"] is True and opts["has_key"] is False
+    assert any(s["lang"] == "fi" for s in opts["seeds"])
+
+
+def test_offline_run_swaps_before_the_target_only(server):
+    events = post(server, {"statement": "Jänis on valkoinen.", "chain": CHAINS[0], "echo": True,
+                           "swaps": [{"placeholder": "Jänis", "real": "Rakkaus"}]})
+    kinds = [e for e, _ in events]
+    assert kinds[0] == "start" and kinds[-1] == "done"
+
+    updates = [d for e, d in events if e == "update"]
+    verse = next(u["text"] for u in updates if u["text"].startswith("[verse]"))
+    assert "Jänis" in verse and "Rakkaus" not in verse          # llm stage saw the placeholder
+    probe = next(u["text"] for u in updates if u["kind"] == "raw_exchange")
+    assert "Rakkaus on valkoinen." in probe and "Jänis" not in probe
+
+    i_swap = next(i for i, (e, _) in enumerate(events) if e == "swap")
+    assert events[i_swap + 1][1]["text"].startswith("[substitute]")  # report sits beside its stage
+    swap = events[i_swap][1]
+    assert swap["pairs"] == [{"placeholder": "Jänis", "real": "Rakkaus", "found": 1,
+                              "left": 0, "real_after": 1}]
+    assert events[-1][1]["verdict"] == "unclear"  # echo answer, no regexes
+
+
+def test_bad_request_is_400(server):
+    with pytest.raises(urllib.error.HTTPError) as e:
+        post(server, {"statement": ""})
+    assert e.value.code == 400
+
+
+def test_swaps_without_a_swap_body_are_refused():
+    srv_no_body = ConsoleServer(("127.0.0.1", 0), unmask_path="nowhere/unmask.py", env={})
+    t = threading.Thread(target=srv_no_body.serve_forever, daemon=True)
+    t.start()
+    try:
+        url = f"http://127.0.0.1:{srv_no_body.server_address[1]}"
+        events = post(url, {"statement": "Jänis.", "echo": True, "chain": CHAINS[1],
+                            "swaps": [{"placeholder": "Jänis", "real": "Rakkaus"}]})
+        assert events == [("fail", {"error": events[0][1]["error"]})]
+        assert "no swap body" in events[0][1]["error"]
+    finally:
+        srv_no_body.shutdown()
+        srv_no_body.server_close()
