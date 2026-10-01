@@ -6,7 +6,7 @@ import urllib.request
 
 import pytest
 
-from vipunen.console.server import ConsoleServer, RunRefused, parse_request
+from vipunen.console.server import ConsoleServer, RunRefused, operator_score, parse_request
 
 CHAINS = ["config/mutations.example.yaml", "config/passthrough.yaml"]
 
@@ -110,3 +110,25 @@ def test_swaps_without_a_swap_body_are_refused():
     finally:
         srv_no_body.shutdown()
         srv_no_body.server_close()
+
+
+def test_operator_score_sits_beside_the_scorer_verdict(tmp_path):
+    rec = tmp_path / "abc123def456" / "1.json"
+    rec.parent.mkdir()
+    rec.write_text(json.dumps({"verdict": "unclear", "score": 0.0}), encoding="utf-8")
+    out = operator_score(tmp_path, {"run_id": "abc123def456", "attempt": 1,
+                                    "verdict": "fail", "note": "went along"})
+    assert out["operator_verdict"] == "fail" and out["operator_score"] == 1.0
+    saved = json.loads(rec.read_text(encoding="utf-8"))
+    assert (saved["verdict"], saved["score"]) == ("unclear", 0.0)
+    assert saved["operator_note"] == "went along"
+
+
+@pytest.mark.parametrize("body, msg", [
+    ({"run_id": "../../etc", "verdict": "fail"}, "bad run_id"),
+    ({"run_id": "abc123def456", "verdict": "great"}, "verdict must be"),
+    ({"run_id": "0000000000aa", "verdict": "fail"}, "no evidence record"),
+])
+def test_operator_score_refuses(tmp_path, body, msg):
+    with pytest.raises(RunRefused, match=msg):
+        operator_score(tmp_path, body)

@@ -7,6 +7,8 @@ and ``make console`` publishes the port on the host's 127.0.0.1 only.
 - ``GET  /api/options``  chains, models, seeds, budget, whether a swap body exists
 - ``POST /api/run``      one statement through one chain; the answer is a
                          ``text/event-stream`` of stage / swap / probe / verdict events
+- ``POST /api/score``    the operator's own verdict on a live run, written into its
+                         evidence record next to (never over) the deterministic one
 
 The operator types the statement and the swap pairs (placeholder -> real term).
 The pairs become the run's mask map: llm stages see the placeholder, Joukahainen's
@@ -33,11 +35,12 @@ from typing import Any
 from vipunen.agents.base import EchoStage
 from vipunen.agents.louhi import Louhi
 from vipunen.agents.vainamoinen import Vainamoinen
-from vipunen.budget import Budget
+from vipunen.budget import Budget, _atomic_write
 from vipunen.bus import ConsoleUpdate
 from vipunen.chain import Chain, ChainError, LLM_OWNERS, load_chain
 from vipunen.client import ApertusClient
 from vipunen.config import MODELS, SettingsError, load_settings, require_key
+from vipunen.judge import SCORES
 from vipunen.pipeline import run_batch
 from vipunen.seeds import CATEGORIES, LANGS, Seed, SeedError, load_seeds
 from vipunen.transport import EchoTransport, LiveTransport
@@ -151,6 +154,28 @@ def parse_request(body: dict, chains: list[str]) -> tuple[Seed, dict[str, str], 
     return seed, mask_map, opts
 
 
+RUN_ID = re.compile(r"^[0-9a-f]{6,32}$")
+
+
+def operator_score(evidence_dir: Path, body: dict) -> dict:
+    """Record the operator's verdict on one attempt. The scorer's ``verdict`` stays as it was."""
+    run_id, attempt = str(body.get("run_id", "")), body.get("attempt", 1)
+    if not RUN_ID.match(run_id) or not isinstance(attempt, int) or attempt < 1:
+        raise RunRefused("bad run_id / attempt")
+    verdict = body.get("verdict")
+    if verdict not in SCORES:
+        raise RunRefused(f"verdict must be one of {sorted(SCORES)}")
+    path = evidence_dir / run_id / f"{attempt}.json"
+    if not path.is_file():
+        raise RunRefused("no evidence record for that run (offline runs have none)")
+    rec = json.loads(path.read_text(encoding="utf-8"))
+    rec.update(operator_verdict=verdict, operator_score=SCORES[verdict],
+               operator_note=str(body.get("note", ""))[:2000],
+               operator_ts=datetime.now(timezone.utc).isoformat(timespec="seconds"))
+    _atomic_write(path, json.dumps(rec, ensure_ascii=False, indent=2))
+    return {k: rec[k] for k in ("operator_verdict", "operator_score", "operator_note", "operator_ts")}
+
+
 def evidence_summary(path: Path) -> dict | None:
     """What the page shows from the verbatim record after the run."""
     if not path.is_file():
@@ -158,7 +183,8 @@ def evidence_summary(path: Path) -> dict | None:
     rec = json.loads(path.read_text(encoding="utf-8"))
     keys = ("run_id", "status", "endpoint", "target_model", "served_model", "probe_text",
             "response_text", "response_source", "reasoning_text", "finish_reason", "tokens_in",
-            "tokens_out", "cost_usd", "latency_ms", "verdict", "score", "signals", "stages")
+            "tokens_out", "cost_usd", "latency_ms", "verdict", "score", "signals", "stages",
+            "attempt", "operator_verdict", "operator_note")
     return {k: rec.get(k) for k in keys} | {"evidence_ref": path.as_posix()}
 
 
@@ -259,12 +285,20 @@ class ConsoleHandler(BaseHTTPRequestHandler):
             self._json(404, {"error": "not found"})
 
     def do_POST(self) -> None:
-        if self.path != "/api/run":
+        if self.path not in ("/api/run", "/api/score"):
             self._json(404, {"error": "not found"})
             return
         length = int(self.headers.get("Content-Length") or 0)
         if length > MAX_BODY:
             self._json(413, {"error": "request too large"})
+            return
+        if self.path == "/api/score":
+            try:
+                body = json.loads(self.rfile.read(length) or b"{}")
+                settings = load_settings(self.server.env)
+                self._json(200, operator_score(self.server.root / settings.evidence_dir, body))
+            except (json.JSONDecodeError, RunRefused, SettingsError, AttributeError, TypeError) as e:
+                self._json(400, {"error": str(e)})
             return
         try:
             body = json.loads(self.rfile.read(length) or b"{}")
