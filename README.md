@@ -13,7 +13,9 @@ framing on the final prompt, is what found the flaws. The work is split into age
 so no single Apertus call sees the whole task and refuses. This track is the tool;
 the red-teaming results it produced are Track 1A. The real payloads are not in this
 public repo, since they can be used for malicious purposes. They are replaced with
-vanilla examples, so anyone can try the methodology.
+vanilla examples, which effectively makes the tool universal. Anyone can write their
+own `mutations.yaml` and use the tool as they see fit, but must follow laws, rules
+and good habits.
 
 Apertus writes a Finnish Kalevala-metre verse around a masked claim, escalates it,
 and is also the model under test. Every text-shaping call sees only masked

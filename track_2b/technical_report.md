@@ -20,7 +20,9 @@ itself.
 So the project is two parts of one thing. This track, 2B, is the tool. Track 1A is
 the red-teaming results it produced. I cannot put all the payloads in this public
 repo, since they can be used for malicious purposes. They are replaced with more
-vanilla examples, so anyone can try the methodology.
+vanilla examples, which effectively makes the tool universal. Anyone can write their
+own `mutations.yaml` and use the tool as they see fit, but must follow laws, rules
+and good habits.
 
 VIPUNEN stands for Versatile Intelligent Pentest User-Network Engagement Node. It is
 named for Antero Vipunen of the Kalevala, the buried giant who holds the lost words;
@@ -137,9 +139,9 @@ Other targets: `make demo-offline` (no key), `make estimate`, `make baseline`,
 
 - A multimodal carrier (v1.5 takes image and audio). High novelty, out of scope for
   the window.
-- The engine is a general Apertus test suite: write a test as a chain in
-  `mutations.yaml`, tune it at runtime in advanced mode, run it against any Apertus
-  endpoint. [fill: how far you want to take the "universal test suite" framing]
+- The engine is already a general Apertus test suite. A test is a chain in
+  `mutations.yaml`, tuned at runtime in advanced mode, run against any Apertus
+  endpoint. The vanilla examples shipped here are a starting point, not a limit.
 
 ## 9. License
 
