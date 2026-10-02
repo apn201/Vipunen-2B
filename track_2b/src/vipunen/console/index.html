@@ -92,6 +92,8 @@ table.swaps th { color: var(--muted); font-weight: 500; font-size: 12px; }
 .vbtns { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .vbtns button { padding: 4px 6px; background: transparent; opacity: .55; }
 .vbtns button.on { opacity: 1; background: var(--code); outline: 2px solid var(--accent); }
+.cap { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.cap .capnote { flex: 1; min-width: 120px; }
 #history { margin-top: 14px; }
 #history button { display: block; width: 100%; text-align: left; margin-top: 4px; font-size: 12px;
                   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -550,6 +552,28 @@ function renderStepView(v) {
   ta.focus();
 }
 
+// Flag any stage exchange (not just the final target) for the 1A submission: it
+// writes a standalone evidence record that `make collect` picks up.
+function captureButton(cardEl, { prompt, answer, label }) {
+  const wrap = document.createElement("div");
+  wrap.className = "cap";
+  wrap.innerHTML = `<button type="button" class="capbtn">Flag this exchange for 1A</button>
+    <input type="text" class="capnote" placeholder="note (optional)" aria-label="note">
+    <span class="hint saved"></span>`;
+  const btn = wrap.querySelector(".capbtn"), note = wrap.querySelector(".capnote");
+  const saved = wrap.querySelector(".saved");
+  btn.onclick = async () => {
+    btn.disabled = true;
+    const i = (stepState && stepState.input) || {};
+    const r = await stepFetch("/api/capture", { prompt, answer, label, note: note.value,
+      claim: i.statement || "", model: i.model || "", endpoint: i.endpoint || "",
+      category: i.category || "", lang: i.lang || "" });
+    if (r.ok) { saved.textContent = `flagged for 1A (${r.data.run_id})`; btn.textContent = "flagged"; }
+    else { saved.textContent = "not saved: " + r.data.error; btn.disabled = false; }
+  };
+  cardEl.querySelector(".body").appendChild(wrap);
+}
+
 async function takeStep(el, prompt) {
   el.querySelectorAll("button, textarea").forEach(x => x.disabled = true);
   el.querySelector(".right").textContent = "running...";
@@ -572,9 +596,11 @@ async function takeStep(el, prompt) {
       `<div class="sub">after swap</div><pre>${highlight(data.output, stepState.pairs)}</pre>`);
   } else if (data.kind === "llm") {
     body.insertAdjacentHTML("beforeend", `<div class="sub">output</div><pre>${highlight(data.output, stepState.pairs)}</pre>`);
+    captureButton(el, { prompt, answer: data.output, label: data.stage_id });
   } else if (data.kind === "target") {
     body.insertAdjacentHTML("beforeend",
       `<div class="sub">answer (${esc(data.model_id)})</div><pre>${highlight(data.answer, stepState.pairs)}</pre>`);
+    captureButton(el, { prompt, answer: data.answer, label: data.stage_id });
     const sig = Object.entries(data.signals || {}).filter(([, x]) => typeof x === "boolean")
       .map(([k, x]) => `<span class="signal${x ? " on" : ""}">${x ? "" : "no "}${esc(k)}</span>`).join("");
     const vcard = card("verdict", `<span class="id">verdict</span><span class="kind">scorer (deterministic)</span>`,

@@ -6,7 +6,8 @@ import urllib.request
 
 import pytest
 
-from vipunen.console.server import ConsoleServer, RunRefused, operator_score, parse_request
+from vipunen.console.server import (ConsoleServer, RunRefused, capture_1a, operator_score,
+                                    parse_request)
 
 CHAINS = ["config/mutations.example.yaml", "config/passthrough.yaml"]
 
@@ -222,3 +223,27 @@ def test_step_start_is_rejected_while_a_run_is_in_progress(server):
 def test_step_next_without_a_session_is_conflict(server):
     st, r = jpost(server, "/api/step/next", {"session": "nope", "prompt": "x"})
     assert st == 409
+
+
+def test_capture_1a_writes_a_flagged_record(tmp_path):
+    out = capture_1a(tmp_path, {"prompt": "Final prompt.", "answer": "Harmful answer.",
+                                "claim": "x", "label": "deliver", "category": "bias", "lang": "fi",
+                                "note": "went along"})
+    rec = json.loads((tmp_path / out["run_id"] / "1.json").read_text(encoding="utf-8"))
+    assert rec["operator_1a"] is True and rec["status"] == "ok"
+    assert rec["probe_text"] == "Final prompt." and rec["response_text"] == "Harmful answer."
+    assert rec["category"] == "bias" and rec["operator_verdict"] == "fail"
+    assert out["run_id"].startswith("cap-")
+
+
+def test_capture_1a_needs_prompt_and_answer(tmp_path):
+    with pytest.raises(RunRefused, match="prompt and an answer"):
+        capture_1a(tmp_path, {"prompt": "x", "answer": "  "})
+
+
+def test_capture_endpoint_is_routed_and_saves(server):
+    st, out = jpost(server, "/api/capture", {"prompt": "P", "answer": "A", "claim": "c",
+                                             "label": "verse", "category": "bias", "lang": "fi"})
+    assert st == 200 and out["run_id"].startswith("cap-")
+    st2, err = jpost(server, "/api/capture", {"prompt": "P"})
+    assert st2 == 400 and "answer" in err["error"]

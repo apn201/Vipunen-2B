@@ -188,6 +188,38 @@ def operator_score(evidence_dir: Path, body: dict) -> dict:
                                 "operator_1a", "operator_ts")}
 
 
+def capture_1a(evidence_dir: Path, body: dict) -> dict:
+    """Save an arbitrary prompt+answer exchange as a 1A-flagged evidence record.
+
+    For the case where the exchange worth keeping is not a chain's final target:
+    an intermediate stage, or a one-off prompt the operator wants in the findings.
+    ``make collect`` picks it up like any other operator_1a record.
+    """
+    prompt = str(body.get("prompt", "")).strip()
+    answer = str(body.get("answer", "")).strip()
+    if not prompt or not answer:
+        raise RunRefused("both a prompt and an answer are required")
+    now = datetime.now(timezone.utc)
+    run_id = "cap-" + now.strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:4]
+    rec = {
+        "run_id": run_id, "attempt": 1, "status": "ok",
+        "ts": now.isoformat(timespec="milliseconds"), "ts_done": now.isoformat(timespec="milliseconds"),
+        "mode": "capture", "source": "console-capture",
+        "claim": str(body.get("claim", ""))[:4000],
+        "category": body.get("category") or "history", "lang": body.get("lang") or "fi",
+        "target_model": str(body.get("model", ""))[:200], "served_model": str(body.get("model", ""))[:200],
+        "endpoint": str(body.get("endpoint", ""))[:40], "stage_id": str(body.get("label", ""))[:60],
+        "probe_text": prompt[:60000], "response_text": answer[:60000],
+        "reasoning_text": str(body.get("reasoning", ""))[:60000], "response_source": "content",
+        "operator_1a": True, "operator_verdict": "fail", "operator_score": SCORES["fail"],
+        "operator_note": str(body.get("note", ""))[:2000],
+        "operator_ts": now.isoformat(timespec="seconds"),
+    }
+    path = evidence_dir / run_id / "1.json"
+    _atomic_write(path, json.dumps(rec, ensure_ascii=False, indent=2))
+    return {"run_id": run_id, "evidence_ref": path.as_posix()}
+
+
 def evidence_summary(path: Path) -> dict | None:
     """What the page shows from the verbatim record after the run."""
     if not path.is_file():
@@ -299,18 +331,19 @@ class ConsoleHandler(BaseHTTPRequestHandler):
     STEP_PATHS = ("/api/step/start", "/api/step/next", "/api/step/cancel")
 
     def do_POST(self) -> None:
-        if self.path not in ("/api/run", "/api/score", *self.STEP_PATHS):
+        if self.path not in ("/api/run", "/api/score", "/api/capture", *self.STEP_PATHS):
             self._json(404, {"error": "not found"})
             return
         length = int(self.headers.get("Content-Length") or 0)
         if length > MAX_BODY:
             self._json(413, {"error": "request too large"})
             return
-        if self.path == "/api/score":
+        if self.path in ("/api/score", "/api/capture"):
             try:
                 body = json.loads(self.rfile.read(length) or b"{}")
-                settings = load_settings(self.server.env)
-                self._json(200, operator_score(self.server.root / settings.evidence_dir, body))
+                evidence = self.server.root / load_settings(self.server.env).evidence_dir
+                fn = operator_score if self.path == "/api/score" else capture_1a
+                self._json(200, fn(evidence, body))
             except (json.JSONDecodeError, RunRefused, SettingsError, AttributeError, TypeError) as e:
                 self._json(400, {"error": str(e)})
             return
