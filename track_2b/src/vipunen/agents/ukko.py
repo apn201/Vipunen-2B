@@ -46,7 +46,8 @@ class StageFailed(RuntimeError):
 class Ukko:
     def __init__(self, chain: Chain, seeds: dict[str, Seed], transport: Transport,
                  mask_maps: dict[str, dict[str, str]] | None = None,
-                 unmask=joukahainen.unmask, tags: dict | None = None) -> None:
+                 unmask=joukahainen.unmask, tags: dict | None = None,
+                 insist_word_form: bool = False) -> None:
         validate(chain)  # already enforced at construction; cheap to restate here
         self.chain = chain
         self.seeds = seeds
@@ -54,6 +55,11 @@ class Ukko:
         self.mask_maps = mask_maps or {}
         self.unmask = unmask
         self.tags = tags or {}  # e.g. batch_id; copied into every evidence record
+        # Telling the carrier stage to keep a placeholder in exactly one form suppresses
+        # Kalevala metre (metre lives on inflection), so it is OFF by default: the lenient
+        # swap (joukahainen.swap_inflected) strips a case ending instead. Turn it on only
+        # when exact word form matters more than verse.
+        self.insist_word_form = insist_word_form
 
     async def run(self, bus: Bus) -> None:
         while True:
@@ -90,7 +96,7 @@ class Ukko:
                     await bus.put(StageTask(seed_id=seed.id, run_id=req.run_id, attempt=attempt,
                                             stage_id=stage.id, template=stage.template,
                                             input_text=text, lang=req.lang, retry=retry,
-                                            keep=tuple(given)),
+                                            keep=tuple(given) if self.insist_word_form else ()),
                                   channel=stage.owner)
                     result = await bus.get(StageResult, channel=UKKO)
                     if result.error:

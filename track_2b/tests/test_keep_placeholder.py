@@ -96,10 +96,11 @@ def test_no_placeholder_in_input_means_no_retry():
     assert stage.retries == [0]
 
 
-def test_stage_is_told_which_words_to_keep():
+def test_carrier_is_not_told_to_keep_the_word_by_default():
+    # keep-the-word instruction suppresses metre, so it is off by default
     stage = Forgetful(keeps_on_retry=0)
     run(stage)
-    assert stage.keeps == [("Jänis",)]
+    assert stage.keeps == [()]
 
 
 def test_stage_prompt_appends_the_keep_instruction_only_when_needed():
