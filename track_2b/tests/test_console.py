@@ -209,14 +209,11 @@ def test_step_refuses_a_real_term_in_a_carrier_prompt_without_advancing(server):
     jpost(server, "/api/step/cancel", {})
 
 
-def test_step_start_is_rejected_while_a_run_is_in_progress(server):
+def test_step_start_takes_over_an_existing_session(server):
     _, v = jpost(server, "/api/step/start", {"statement": "x", "chain": CHAINS[1], "echo": True})
+    # a second start takes over the first (single local operator) instead of 409
     st, r = jpost(server, "/api/step/start", {"statement": "y", "chain": CHAINS[1], "echo": True})
-    assert st == 409
-    jpost(server, "/api/step/cancel", {})
-    # after cancel a new one starts
-    st, _ = jpost(server, "/api/step/start", {"statement": "z", "chain": CHAINS[1], "echo": True})
-    assert st == 200
+    assert st == 200 and r["session"] != v["session"]
     jpost(server, "/api/step/cancel", {})
 
 
@@ -247,3 +244,15 @@ def test_capture_endpoint_is_routed_and_saves(server):
     assert st == 200 and out["run_id"].startswith("cap-")
     st2, err = jpost(server, "/api/capture", {"prompt": "P"})
     assert st2 == 400 and "answer" in err["error"]
+
+
+def test_a_new_run_reclaims_an_orphaned_step_session(server):
+    # start an advanced run and walk away (never cancel)
+    st, _ = jpost(server, "/api/step/start", {"statement": "x", "chain": CHAINS[1], "echo": True})
+    assert st == 200
+    # a second advanced start takes it over instead of 409
+    st2, _ = jpost(server, "/api/step/start", {"statement": "y", "chain": CHAINS[1], "echo": True})
+    assert st2 == 200
+    # and an automatic run reclaims it too
+    events = post(server, {"statement": "z", "chain": CHAINS[1], "echo": True})
+    assert events[-1][0] == "done"

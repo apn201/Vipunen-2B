@@ -362,6 +362,8 @@ class ConsoleHandler(BaseHTTPRequestHandler):
         except (json.JSONDecodeError, RunRefused, AttributeError, TypeError) as e:
             self._json(400, {"error": str(e)})
             return
+        if self.server._step is not None:  # reclaim an orphaned advanced-mode session
+            self.server._end_step()
         if not self.server.busy.acquire(blocking=False):
             self._json(HTTPStatus.CONFLICT, {"error": "a run is already in progress"})
             return
@@ -427,6 +429,11 @@ class ConsoleServer(ThreadingHTTPServer):
         """Advanced mode. start acquires self.busy and keeps it; next runs one stage;
         cancel (or the target stage finishing) releases it. One session at a time."""
         if path == "/api/step/start":
+            # An advanced run that the operator walked away from holds the lock. A new
+            # start takes it over (single local operator, one run at a time) so the
+            # console can never wedge on an orphaned session.
+            if self._step is not None:
+                self._end_step()
             if not self.busy.acquire(blocking=False):
                 return HTTPStatus.CONFLICT, {"error": "a run is already in progress"}
             try:
