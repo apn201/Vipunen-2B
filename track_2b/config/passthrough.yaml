@@ -7,6 +7,4 @@ chain:
     mutates: false
     template: |
       {input}
-loop:
-  max_tries: 1
 variants: {}

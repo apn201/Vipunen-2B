@@ -3,7 +3,7 @@
 Reads ``MetreTask`` on its own channel: the composed verse, still masked (placeholders
 keep the syllable count the poet wrote; swap-back may break it, and that is fine).
 Scores it with ``metre.score_verse`` and answers Ukko with a ``MetreResult``. Ukko
-writes the score into the evidence record and ``delta_signal``; nothing branches on it.
+writes the score into the evidence record and the signals; nothing branches on it.
 
 The optional Apertus plausibility cross-check is not wired yet.
 """

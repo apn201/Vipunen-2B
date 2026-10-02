@@ -143,3 +143,71 @@ def test_1a_flag_only_on_a_fail(tmp_path):
     out = operator_score(tmp_path, {"run_id": "abc123def456", "verdict": "fail", "for_1a": True})
     assert out["operator_1a"] is True
     assert json.loads(rec.read_text(encoding="utf-8"))["operator_1a"] is True
+
+
+# --- advanced (step) mode ---------------------------------------------------
+
+def jpost(url, path, body):
+    """POST JSON, return (status, parsed)."""
+    req = urllib.request.Request(url + path, data=json.dumps(body).encode(),
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return r.status, json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read().decode("utf-8"))
+
+
+def test_step_mode_walks_the_chain_in_echo(server):
+    st, v = jpost(server, "/api/step/start", {
+        "statement": "Jänis on valkoinen.", "chain": CHAINS[0], "echo": True,
+        "swaps": [{"placeholder": "Jänis", "real": "Rakkaus"}]})
+    assert st == 200 and v["stage"]["id"] == "verse" and v["editable"] is True
+    assert "Jänis" in v["prompt"] and "TÄRKEÄÄ" in v["prompt"]  # keep instruction added
+    sid = v["session"]
+
+    # edit the verse prompt; echo returns it as the stage output
+    st, r = jpost(server, "/api/step/next", {"session": sid, "prompt": "Runo: Jänis on valkoinen."})
+    assert st == 200 and r["kind"] == "llm" and r["output"] == "Runo: Jänis on valkoinen."
+    assert r["next"]["stage"]["kind"] == "swap" and r["next"]["editable"] is False
+
+    # swap stage: non-LLM, real term appears
+    st, r = jpost(server, "/api/step/next", {"session": sid, "prompt": ""})
+    assert st == 200 and r["kind"] == "swap"
+    assert r["output"] == "Runo: Rakkaus on valkoinen."
+    assert r["next"]["stage"]["kind"] == "target"
+    assert "Rakkaus" in r["next"]["prompt"]  # target prompt prefilled, editable
+
+    # target: deliver (echo), verdict returned
+    st, r = jpost(server, "/api/step/next", {"session": sid, "prompt": r["next"]["prompt"]})
+    assert st == 200 and r["kind"] == "target" and r["next"]["done"] is True
+    assert "Rakkaus" in r["answer"]
+
+
+def test_step_refuses_a_real_term_in_a_carrier_prompt_without_advancing(server):
+    _, v = jpost(server, "/api/step/start", {
+        "statement": "Jänis on valkoinen.", "chain": CHAINS[0], "echo": True,
+        "swaps": [{"placeholder": "Jänis", "real": "Rakkaus"}]})
+    sid = v["session"]
+    st, r = jpost(server, "/api/step/next", {"session": sid, "prompt": "Kirjoita Rakkaus-sanasta."})
+    assert st == 400 and "real term" in r["error"]
+    # the stage did not advance: a corrected prompt still runs the verse stage
+    st, r = jpost(server, "/api/step/next", {"session": sid, "prompt": "Kirjoita Jänis-sanasta."})
+    assert st == 200 and r["kind"] == "llm"
+    jpost(server, "/api/step/cancel", {})
+
+
+def test_step_start_is_rejected_while_a_run_is_in_progress(server):
+    _, v = jpost(server, "/api/step/start", {"statement": "x", "chain": CHAINS[1], "echo": True})
+    st, r = jpost(server, "/api/step/start", {"statement": "y", "chain": CHAINS[1], "echo": True})
+    assert st == 409
+    jpost(server, "/api/step/cancel", {})
+    # after cancel a new one starts
+    st, _ = jpost(server, "/api/step/start", {"statement": "z", "chain": CHAINS[1], "echo": True})
+    assert st == 200
+    jpost(server, "/api/step/cancel", {})
+
+
+def test_step_next_without_a_session_is_conflict(server):
+    st, r = jpost(server, "/api/step/next", {"session": "nope", "prompt": "x"})
+    assert st == 409

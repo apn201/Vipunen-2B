@@ -138,6 +138,7 @@ table.swaps th { color: var(--muted); font-weight: 500; font-size: 12px; }
       <p class="hint">Without them the verdict rests on affirm / negate / refusal openers only.</p>
     </details>
     <label class="check"><input type="checkbox" id="echo"> offline (echo stages and target, no spend)</label>
+    <label class="check"><input type="checkbox" id="advanced"> advanced: step through, edit each prompt before it is sent</label>
 
     <div class="actions">
       <button class="primary" id="run">Run</button>
@@ -451,6 +452,7 @@ async function run() {
   if (missing.length)
     card("error", `<span class="id">note</span>`,
       `${missing.map(p => esc(p.placeholder)).join(", ")} is not in the statement; that swap only applies if a stage writes it.`);
+  if ($("advanced").checked) { startStep(input); return; }
   $("run").disabled = true; $("stop").disabled = false;
   $("status").textContent = "starting...";
   controller = new AbortController();
@@ -486,8 +488,108 @@ async function run() {
   }
 }
 
+// --- advanced (step) mode ------------------------------------------------
+let stepState = null;
+
+async function stepFetch(path, body) {
+  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify(body) });
+  const data = await r.json().catch(() => ({ error: r.statusText }));
+  return { ok: r.ok, status: r.status, data };
+}
+
+async function startStep(input) {
+  $("run").disabled = true; $("stop").disabled = false;
+  $("status").textContent = "advanced: starting...";
+  const { ok, data } = await stepFetch("/api/step/start", input);
+  if (!ok) { card("error", `<span class="id">cannot start</span>`, esc(data.error)); endStep(); return; }
+  stepState = { session: data.session, pairs: input.swaps, input };
+  renderStepView(data);
+}
+
+function endStep() {
+  stepState = null;
+  $("run").disabled = false; $("stop").disabled = true;
+}
+
+async function cancelStep() {
+  if (!stepState) return;
+  await stepFetch("/api/step/cancel", {});
+  $("status").textContent = "advanced run cancelled";
+  endStep();
+}
+
+// Render the editable prompt (or the read-only swap) for the stage about to run.
+function renderStepView(v) {
+  if (v.done) { $("status").textContent = "done"; endStep(); return; }
+  const s = v.stage;
+  $("status").textContent = `advanced: stage ${s.index + 1}/${s.total} — ${s.id} (${s.kind})`;
+  const owner = s.owner ? ` · ${s.owner}` : "";
+  const el = card("running",
+    `<span class="id">${esc(s.id)}</span><span class="kind">${esc(s.kind)}${esc(owner)}</span><span class="right">about to run</span>`);
+  const b = el.querySelector(".body");
+  if (v.note) b.insertAdjacentHTML("beforeend", `<p class="hint">${esc(v.note)}</p>`);
+
+  if (!v.editable) {  // swap stage: read-only, one button to apply it
+    b.insertAdjacentHTML("beforeend", `<div class="sub">substitution (non-LLM, not editable)</div>`);
+    const go = document.createElement("button");
+    go.className = "primary"; go.textContent = "Apply swap";
+    go.onclick = () => takeStep(el, "");
+    b.appendChild(go);
+    return;
+  }
+  b.insertAdjacentHTML("beforeend", `<div class="sub">prompt to send — edit before running</div>`);
+  const ta = document.createElement("textarea");
+  ta.value = v.prompt; ta.style.minHeight = "120px"; ta.spellcheck = false;
+  b.appendChild(ta);
+  const bar = document.createElement("div"); bar.className = "actions";
+  const go = document.createElement("button");
+  go.className = "primary"; go.textContent = s.kind === "target" ? "Send to target" : "Run stage";
+  go.onclick = () => takeStep(el, ta.value);
+  bar.appendChild(go); b.appendChild(bar);
+  ta.focus();
+}
+
+async function takeStep(el, prompt) {
+  el.querySelectorAll("button, textarea").forEach(x => x.disabled = true);
+  el.querySelector(".right").textContent = "running...";
+  const { ok, data } = await stepFetch("/api/step/next", { session: stepState.session, prompt });
+  if (!ok) {  // StepError (e.g. mask leak): the stage did NOT advance — let the operator retry
+    el.querySelectorAll("button, textarea").forEach(x => x.disabled = false);
+    el.querySelector(".right").textContent = "not sent";
+    el.querySelector(".body").insertAdjacentHTML("beforeend", `<p class="hint warn">${esc(data.error)}</p>`);
+    if (data.error && /session/.test(data.error)) endStep();
+    return;
+  }
+  el.className = "card done";
+  el.querySelector(".right").textContent = "done";
+  const body = el.querySelector(".body");
+  if (data.kind === "swap") {
+    const rows = data.pairs.map(p => `<tr><td><mark class="ph">${esc(p.placeholder)}</mark></td>
+      <td><mark class="real">${esc(p.real)}</mark></td><td>${p.left ? `<span class="warn">${p.left} left</span>` : "ok"}</td></tr>`).join("");
+    body.insertAdjacentHTML("beforeend",
+      (rows ? `<table class="swaps"><tr><th>placeholder</th><th>real term</th><th></th></tr>${rows}</table>` : "") +
+      `<div class="sub">after swap</div><pre>${highlight(data.output, stepState.pairs)}</pre>`);
+  } else if (data.kind === "llm") {
+    body.insertAdjacentHTML("beforeend", `<div class="sub">output</div><pre>${highlight(data.output, stepState.pairs)}</pre>`);
+  } else if (data.kind === "target") {
+    body.insertAdjacentHTML("beforeend",
+      `<div class="sub">answer (${esc(data.model_id)})</div><pre>${highlight(data.answer, stepState.pairs)}</pre>`);
+    const sig = Object.entries(data.signals || {}).filter(([, x]) => typeof x === "boolean")
+      .map(([k, x]) => `<span class="signal${x ? " on" : ""}">${x ? "" : "no "}${esc(k)}</span>`).join("");
+    const vcard = card("verdict", `<span class="id">verdict</span><span class="kind">scorer (deterministic)</span>`,
+      `${verdictBadge(data.verdict)} <span class="kind">score ${data.score}</span>${sig ? `<div class="signals">${sig}</div>` : ""}`);
+    const entry = { input: stepState.input, verdict: data.verdict };
+    if (data.evidence_ref) scoreBox(vcard, { run_id: data.run_id, attempt: 1, signals: data.signals }, entry);
+    else vcard.querySelector(".body").insertAdjacentHTML("beforeend", `<p class="hint">offline run: no record to score</p>`);
+    history.unshift(entry); renderHistory();
+  }
+  if (data.next) renderStepView(data.next);
+  if (data.next && data.next.done) { $("status").textContent = "done"; endStep(); }
+}
+
 $("run").onclick = run;
-$("stop").onclick = () => controller && controller.abort();
+$("stop").onclick = () => { if (stepState) cancelStep(); else if (controller) controller.abort(); };
 $("addSwap").onclick = () => addSwap();
 $("statement").addEventListener("keydown", e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) run(); });
 addSwap();

@@ -57,6 +57,27 @@ How you measured success: task, metric, baseline.
 
 Where it breaks, what you did not test, and known failure modes.
 
+### Scope: planned but cut
+
+The design (see `docs/`) sketched more than the entry needed. We cut the following
+deliberately and record them here for honesty and for the next iteration:
+
+- **Per-seed adaptive loop** (Ukko retrying a claim up to *N* times, one variable
+  per attempt). Cut: in practice the operator drives iteration from the console, so
+  the automatic loop added machinery without changing findings. The chain runs once;
+  a `loop:` block in an old config is accepted and ignored.
+- **Category scorers for bias / PII / IP** and the **hash-only ledger**, **Apertus
+  severity opinion** and **end-of-loop tuning note** (planned "S5"). Cut: the
+  deterministic factual scorer (history/culture) plus the operator's own verdict
+  cover what the 1A findings need. The operator verdict, recorded per run, replaced
+  the ledger/severity/tuning-note ideas.
+- **Headless batch grid and cross-run planner** (planned "S7"). Cut: the 1A
+  reproducibility harness (separate repo) already replays each finding across the
+  model × temperature grid, which is the only grid the submission relies on.
+
+Division of labour that survived: in the **console** the human gives the verdict;
+on the **control/replay** side a per-finding regex scores answers deterministically.
+
 ## 7. Reproducibility
 
 What a judge needs to get your numbers back: hardware, runtime, seeds, and the

@@ -14,7 +14,7 @@ CONFIG = Path(__file__).resolve().parents[1] / "config"
 
 
 def stages(*specs):
-    return {"chain": list(specs), "loop": {"max_tries": 3}}
+    return {"chain": list(specs)}
 
 
 VERSE = {"id": "verse", "kind": "llm", "owner": "vainamoinen", "template": "V {input}"}
@@ -26,7 +26,6 @@ TARGET = {"id": "deliver", "kind": "target", "template": "T {input}"}
 def test_valid_chain_parses():
     chain = parse_chain(stages(VERSE, ESC, SWAP, TARGET))
     assert [s.id for s in chain.stages] == ["verse", "escalate", "substitute", "deliver"]
-    assert chain.max_tries == 3
     assert chain.swap_index == 2
 
 
@@ -42,7 +41,7 @@ def test_llm_after_swap_refused_even_when_constructed_directly():
         Stage(id="deliver", kind="target", template="{input}"),
     )
     with pytest.raises(ChainError, match="after the swap"):
-        Chain(stages=bad, max_tries=1)
+        Chain(stages=bad)
 
 
 @pytest.mark.parametrize("order", [
@@ -108,12 +107,6 @@ def test_variants_must_target_mutating_stages():
     with pytest.raises(ChainError, match="{input}"):
         parse_chain(data)
 
-
-def test_bad_max_tries():
-    data = stages(VERSE, SWAP, TARGET)
-    data["loop"] = {"max_tries": 0}
-    with pytest.raises(ChainError, match="max_tries"):
-        parse_chain(data)
 
 
 def test_render_leaves_other_braces_alone():

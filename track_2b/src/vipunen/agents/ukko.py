@@ -159,7 +159,7 @@ class Ukko:
                                 metre_score=metre.metre_score if metre else None),
                       channel=LEMMINKAINEN)
         scored = await bus.get(ResponseResult, channel=UKKO)
-        flags = ", ".join(k for k, v in scored.delta_signal.items() if v is True)
+        flags = ", ".join(k for k, v in scored.signals.items() if v is True)
         await self._say(bus, req, "verdict", f"{scored.verdict.upper()} ({flags or 'no signals'})")
         return scored.verdict
 

@@ -48,8 +48,8 @@ def estimate(chains: list[tuple[str, Chain]], seeds: list[Seed], s: Settings) ->
                 model, out = ((s.stage_model, s.stage_max_tokens) if stage.kind == "llm"
                               else (s.target_model, s.target_max_tokens))
                 t_in = estimate_tokens(stage.template or "") + prev
-                usd += cost_usd(model, t_in, out) * chain.max_tries
-                calls += chain.max_tries
+                usd += cost_usd(model, t_in, out)
+                calls += 1
                 prev = out
     return calls, usd
 

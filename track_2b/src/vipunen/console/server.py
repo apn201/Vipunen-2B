@@ -27,6 +27,7 @@ import importlib.util
 import json
 import re
 import threading
+import uuid
 from collections.abc import Callable
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -46,6 +47,7 @@ from vipunen.judge import SCORES
 from vipunen.pipeline import run_batch
 from vipunen.seeds import CATEGORIES, LANGS, Seed, SeedError, load_seeds
 from vipunen.transport import EchoTransport, LiveTransport
+from vipunen.console import step
 
 PAGE = Path(__file__).with_name("index.html")
 CHAIN_GLOBS = ("config/*.yaml", "private/*.yaml")
@@ -292,8 +294,10 @@ class ConsoleHandler(BaseHTTPRequestHandler):
         else:
             self._json(404, {"error": "not found"})
 
+    STEP_PATHS = ("/api/step/start", "/api/step/next", "/api/step/cancel")
+
     def do_POST(self) -> None:
-        if self.path not in ("/api/run", "/api/score"):
+        if self.path not in ("/api/run", "/api/score", *self.STEP_PATHS):
             self._json(404, {"error": "not found"})
             return
         length = int(self.headers.get("Content-Length") or 0)
@@ -307,6 +311,15 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                 self._json(200, operator_score(self.server.root / settings.evidence_dir, body))
             except (json.JSONDecodeError, RunRefused, SettingsError, AttributeError, TypeError) as e:
                 self._json(400, {"error": str(e)})
+            return
+        if self.path in self.STEP_PATHS:
+            try:
+                body = json.loads(self.rfile.read(length) or b"{}")
+            except json.JSONDecodeError as e:
+                self._json(400, {"error": str(e)})
+                return
+            status, data = self.server.handle_step(self.path, body)
+            self._json(status, data)
             return
         try:
             body = json.loads(self.rfile.read(length) or b"{}")
@@ -373,6 +386,62 @@ class ConsoleServer(ThreadingHTTPServer):
         self.env = env
         self.verbose = verbose
         self.busy = threading.Lock()
+        self._step: step.StepSession | None = None  # one advanced-mode session, holds self.busy
+
+    def handle_step(self, path: str, body: dict) -> tuple[int, dict]:
+        """Advanced mode. start acquires self.busy and keeps it; next runs one stage;
+        cancel (or the target stage finishing) releases it. One session at a time."""
+        if path == "/api/step/start":
+            if not self.busy.acquire(blocking=False):
+                return HTTPStatus.CONFLICT, {"error": "a run is already in progress"}
+            try:
+                session = self._build_step(body)
+            except (RunRefused, SettingsError, ChainError, OSError, ValueError) as e:
+                self.busy.release()
+                return 400, {"error": str(e)}
+            self._step = session
+            return 200, step.view(session)
+
+        if self._step is None:
+            return HTTPStatus.CONFLICT, {"error": "no advanced run in progress; start one first"}
+        if path == "/api/step/cancel":
+            self._end_step()
+            return 200, {"cancelled": True}
+        if body.get("session") != self._step.id:
+            return HTTPStatus.CONFLICT, {"error": "stale session; the run was replaced or cancelled"}
+        try:
+            result = step.run_one(self._step, str(body.get("prompt", "")))
+        except step.StepError as e:
+            return 400, {"error": str(e)}  # nothing advanced; the operator can retry this stage
+        except (SettingsError, OSError) as e:
+            self._end_step()
+            return 400, {"error": str(e)}
+        if self._step.done:
+            self._end_step()
+        return 200, result
+
+    def _build_step(self, body: dict) -> "step.StepSession":
+        seed, mask_map, opts = parse_request(body, chain_files(self.root))
+        chain = load_chain(self.root / opts["chain"])
+        unmask = self.unmask()
+        if mask_map and unmask is None:
+            raise RunRefused(f"swap pairs given but no swap body: put unmask(text, mask_map) "
+                             f"in {UNMASK_PATH} (or set VIPUNEN_UNMASK)")
+        settings = load_settings(self.env, endpoint=opts["endpoint"], target_model=opts["model"])
+        if not opts["echo"]:
+            require_key(settings)
+        sid = uuid.uuid4().hex
+        return step.new_session(sid, chain, seed, mask_map, settings, unmask=unmask,
+                                echo=opts["echo"], root=self.root,
+                                endpoint_name=settings.endpoint.name,
+                                tags={"source": "console-step"})
+
+    def _end_step(self) -> None:
+        self._step = None
+        try:
+            self.busy.release()
+        except RuntimeError:
+            pass
 
     def unmask(self) -> Unmask | None:
         if self._unmask is not None:

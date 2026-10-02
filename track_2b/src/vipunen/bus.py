@@ -20,7 +20,6 @@ class RunRequest:            # Pohjanakka -> Ukko
     category: str
     lang: str
     target_model: str
-    max_tries: int
     run_id: str
 
 
@@ -94,8 +93,7 @@ class ResponseResult:        # Lemminkainen -> Ukko
     evidence_ref: str
     verdict: str
     score: float
-    count: int
-    delta_signal: dict = field(default_factory=dict)
+    signals: dict = field(default_factory=dict)
     tokens_in: int = 0
     tokens_out: int = 0
     cost: float = 0.0

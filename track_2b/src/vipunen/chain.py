@@ -39,10 +39,8 @@ class Stage:
 @dataclass(frozen=True)
 class Chain:
     stages: tuple[Stage, ...]
-    max_tries: int = 1
     variants: dict[str, tuple[str, ...]] = field(default_factory=dict)
     name: str = ""
-    stop_on: tuple[str, ...] = ("fail",)   # verdicts that end the per-seed loop early
 
     def __post_init__(self) -> None:
         validate(self)
@@ -102,14 +100,6 @@ def validate(chain: Chain) -> None:
     if targets[0] != len(stages) - 1:
         raise ChainError("the target stage must be last")
 
-    if not isinstance(chain.max_tries, int) or isinstance(chain.max_tries, bool) or chain.max_tries < 1:
-        raise ChainError(f"loop.max_tries must be a positive integer, got {chain.max_tries!r}")
-
-    from vipunen.judge import SCORES  # verdict labels
-    bad = [v for v in chain.stop_on if v not in SCORES]
-    if bad:
-        raise ChainError(f"loop.stop_on has unknown verdicts {bad}; use {sorted(SCORES)}")
-
     by_id = {s.id: s for s in stages}
     for stage_id, templates in chain.variants.items():
         if stage_id not in by_id:
@@ -160,11 +150,10 @@ def parse_chain(data: dict[str, Any], name: str = "") -> Chain:
             template=template,
             mutates=bool(raw.get("mutates", False)),
         ))
-    loop = data.get("loop") or {}
-    stop_on = loop.get("stop_on", ["fail"])
-    return Chain(stages=tuple(stages), max_tries=loop.get("max_tries", 1),
-                 variants={k: tuple(v) for k, v in variants.items() if v}, name=name,
-                 stop_on=tuple(stop_on) if isinstance(stop_on, list) else (stop_on,))
+    # A ``loop:`` block (per-seed retry loop) was planned (S4) but cut; it is ignored
+    # if present, so older operator configs still load. See the technical report.
+    return Chain(stages=tuple(stages),
+                 variants={k: tuple(v) for k, v in variants.items() if v}, name=name)
 
 
 def load_chain(path: str | Path) -> Chain:

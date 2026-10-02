@@ -18,12 +18,11 @@ def new_run_id() -> str:
 
 
 class Pohjanakka:
-    def __init__(self, seeds: Iterable[Seed], target_model: str, max_tries: int,
+    def __init__(self, seeds: Iterable[Seed], target_model: str,
                  gate: Callable[[], str | None] = lambda: None) -> None:
         """``gate()`` returns None to allow the next run, or a reason string to stop."""
         self.seeds = list(seeds)
         self.target_model = target_model
-        self.max_tries = max_tries
         self.gate = gate
         self.completed: list[RunComplete] = []
 
@@ -35,7 +34,6 @@ class Pohjanakka:
                 break
             await bus.put(RunRequest(seed_id=seed.id, claim_hash=seed.claim_hash,
                                      category=seed.category, lang=seed.lang,
-                                     target_model=self.target_model,
-                                     max_tries=self.max_tries, run_id=new_run_id()))
+                                     target_model=self.target_model, run_id=new_run_id()))
             self.completed.append(await bus.get(RunComplete))
         return self.completed

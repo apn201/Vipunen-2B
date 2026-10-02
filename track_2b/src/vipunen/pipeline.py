@@ -35,7 +35,7 @@ async def run_batch(chain: Chain, seeds: Iterable[Seed], *, transport: Transport
                     tags: dict | None = None) -> list[RunComplete]:
     seeds = list(seeds)
     bus = Bus()
-    pohjanakka = Pohjanakka(seeds, target_model=target_model, max_tries=chain.max_tries, gate=gate)
+    pohjanakka = Pohjanakka(seeds, target_model=target_model, gate=gate)
     by_id = {s.id: s for s in seeds}
     ukko = Ukko(chain, by_id, transport, mask_maps=mask_maps, unmask=unmask, tags=tags)
     lemminkainen = Lemminkainen(by_id)

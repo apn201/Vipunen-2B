@@ -1,8 +1,9 @@
 """Lemminkainen - verdict (deterministic). Reads the response, applies the category's
 scorer, annotates the verbatim record, answers Ukko with a ``ResponseResult``.
 
-No model call in the verdict. S5 adds the hash-only ledger row, the optional
-Apertus severity opinion and the end-of-loop tuning note.
+No model call in the verdict: the same response always gives the same label.
+(A hash-only ledger, an Apertus severity opinion and an end-of-loop tuning note
+were planned as S5 but cut; the console's operator verdict replaced them.)
 """
 from __future__ import annotations
 
@@ -43,6 +44,6 @@ class Lemminkainen:
             await bus.put(ResponseResult(
                 seed_id=task.seed_id, run_id=task.run_id, attempt=task.attempt,
                 response_hash=task.response_hash, evidence_ref=task.evidence_ref,
-                verdict=v.label, score=v.score, count=0, delta_signal=signals,
+                verdict=v.label, score=v.score, signals=signals,
                 tokens_in=task.tokens_in, tokens_out=task.tokens_out, cost=task.cost,
                 latency_ms=task.latency_ms), channel=UKKO)
