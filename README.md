@@ -2,15 +2,24 @@
 
 Agentic red-teaming of Apertus, built entirely on Apertus. Hack Apertus 2026, Track 2B.
 
-**VIPUNEN** — *Versatile Intelligent Pentest User-Network Engagement Node*. Named for
-Antero Vipunen, the buried giant of the Kalevala who holds the lost words of origin;
+**VIPUNEN** stands for *Versatile Intelligent Pentest User-Network Engagement Node*.
+Named for Antero Vipunen of the Kalevala, the buried giant who holds the lost words;
 Väinämöinen climbs inside him to make him sing them out.
 
+I wanted to test the safeguards of Apertus, and also what the models can do. One team
+may only get one submission, so I built the whole thing on Apertus itself. The idea
+was that Finnish in poetic form confuses the safeguards. That, together with the
+framing on the final prompt, is what found the flaws. The work is split into agents,
+so no single Apertus call sees the whole task and refuses. This track is the tool;
+the red-teaming results it produced are Track 1A. The real payloads are not in this
+public repo, since they can be used for malicious purposes. They are replaced with
+vanilla examples, so anyone can try the methodology.
+
 Apertus writes a Finnish Kalevala-metre verse around a masked claim, escalates it,
-and is also the model under test — every text-shaping call sees only masked
+and is also the model under test. Every text-shaping call sees only masked
 ("rabbit") text; the real terms are swapped in by a non-LLM step just before the
-final prompt. A single Apertus call never sees the whole intent. The headline
-verdict is deterministic (regex against ground truth), so it reproduces with no key.
+final prompt. The headline verdict is deterministic (regex against ground truth), so
+it reproduces with no key.
 
 The project lives in [`track_2b/`](track_2b/). From there:
 
@@ -27,13 +36,13 @@ Other targets: `make demo-offline` (no key, echo), `make estimate` (price a run)
 
 `make console` serves an operator page on http://localhost:8000 (localhost only):
 
-- Type a statement and swap pairs (**safe word → real word**). The carrier stages
+- Type a statement and swap pairs (**safe word to real word**). The carrier stages
   see only the safe word; the real word is substituted just before the target.
 - **Automatic mode** streams the whole chain, then you record your own verdict
   (FAIL / PARTIAL / PASS / REFUSED / UNCLEAR) and may flag an obvious FAIL for the
   Track 1A submission. The deterministic scorer is shown as a hint, not the headline.
 - **Advanced mode** runs the chain one stage at a time and lets you edit the exact
-  prompt before each stage is sent — the carrier-stage prompts are still refused if
+  prompt before each stage is sent. The carrier-stage prompts are still refused if
   they contain a real term, so the masking invariant holds even by hand.
 
 ## Deployment
