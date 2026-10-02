@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from vipunen.agents import joukahainen
+from vipunen.agents.vainamoinen import MAX_RETRIES, MIN_CHARS, is_refusal, strip_preamble
 from vipunen.budget import Budget, BudgetExceeded, estimate_tokens
 from vipunen.chain import Chain, render
 from vipunen.client import ApertusClient, ApertusError
@@ -100,21 +101,35 @@ def view(session: StepSession) -> dict:
     return base
 
 
-async def _chat(session: StepSession, prompt: str) -> dict:
-    """One llm-stage call (carrier stage). Returns a stage-output dict."""
+async def _chat(session: StepSession, prompt: str, owner: str | None = None) -> dict:
+    """One carrier-stage call. For the verse stage (Vainamoinen) it matches auto mode:
+    resample with a fresh seed while the output is a refusal or shorter than the verse
+    minimum, up to MAX_RETRIES, and strip a prose preamble. Otherwise a single call.
+    Without this, a verse that happens to refuse at the base seed is carried forward and
+    the whole chain refuses, while auto mode would have retried past it."""
     s = session.settings
+    is_verse = owner == "vainamoinen"
+    tries_max = MAX_RETRIES if is_verse else 0
     client = ApertusClient(s.endpoint, timeout_s=s.timeout_s)
     budget = Budget.from_settings(s)
+    tokens_in = tokens_out = 0
     try:
-        budget.authorize(s.stage_model, estimate_tokens(prompt), s.stage_max_tokens)
-        r = await client.chat([{"role": "user", "content": prompt}], model=s.stage_model,
-                              max_tokens=s.stage_max_tokens, temperature=s.stage_temperature,
-                              seed=s.seed)
-        budget.record(s.stage_model, r.usage)
+        for tries in range(tries_max + 1):
+            seed = None if s.seed is None else s.seed + tries
+            budget.authorize(s.stage_model, estimate_tokens(prompt), s.stage_max_tokens)
+            r = await client.chat([{"role": "user", "content": prompt}], model=s.stage_model,
+                                  max_tokens=s.stage_max_tokens, temperature=s.stage_temperature,
+                                  seed=seed)
+            budget.record(s.stage_model, r.usage)
+            tokens_in += r.tokens_in
+            tokens_out += r.tokens_out
+            text = strip_preamble(r.text) if is_verse else r.text
+            if not is_verse or (len(text) >= MIN_CHARS and not is_refusal(text)):
+                break
     finally:
         await client.aclose()
-    return {"output_text": r.text, "tokens_in": r.tokens_in, "tokens_out": r.tokens_out,
-            "source": r.source, "budget": budget.status()}
+    return {"output_text": text, "tokens_in": tokens_in, "tokens_out": tokens_out,
+            "source": r.source, "budget": budget.status(), "retries": tries}
 
 
 async def _deliver(session: StepSession, probe: str) -> dict:
@@ -172,7 +187,7 @@ def run_one(session: StepSession, prompt: str) -> dict:
             raise StepError(f"the prompt still contains {len(leaked)} real term(s) from the swap "
                             "map; a carrier stage must not see them. Edit it or use the safe word.")
         try:
-            out = asyncio.run(_echo_stage(prompt)) if session.echo else asyncio.run(_chat(session, prompt))
+            out = asyncio.run(_echo_stage(prompt)) if session.echo else asyncio.run(_chat(session, prompt, stage.owner))
         except (ApertusError, BudgetExceeded) as e:
             raise StepError(f"{type(e).__name__}: {e}") from e
         session.text = out["output_text"]
