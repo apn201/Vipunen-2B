@@ -49,11 +49,23 @@ def run(stage):
     return updates
 
 
-def test_placeholders_in_is_whole_word_any_case():
+def test_placeholders_in_tolerates_a_case_ending():
     m = {"Jänis": "Rakkaus"}
     assert joukahainen.placeholders_in("jänis juoksi", m) == ["Jänis"]
+    # a stem change that drops the prefix is NOT a match (still triggers a retry)
     assert joukahainen.placeholders_in("Jäniksen turkki", m) == []
-    assert joukahainen.placeholders_in("jänislauma", m) == []
+    # a simple case ending IS a match now
+    assert joukahainen.placeholders_in("jänislauma", m) == ["Jänis"]
+
+
+def test_swap_inflected_drops_the_ending_and_keeps_case():
+    m = {"Juha": "Rakkaus"}
+    assert joukahainen.swap_inflected("Juha ja Juhan ja JUHALLE", m) == "Rakkaus ja Rakkaus ja RAKKAUS"
+    # a separator ends the run, so a following word is not swallowed
+    assert joukahainen.swap_inflected("Juha Ja", m) == "Rakkaus Ja"
+    # longest placeholder wins over a shorter prefix of it
+    m2 = {"Juha": "Rakkaus", "Juhani": "Kettu"}
+    assert joukahainen.swap_inflected("Juhani ja Juha", m2) == "Kettu ja Rakkaus"
 
 
 def test_stage_is_asked_again_until_it_keeps_the_placeholder():

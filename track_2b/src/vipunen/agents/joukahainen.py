@@ -11,6 +11,19 @@ operator's private body.
 import re
 from collections.abc import Iterable
 
+# A carrier stage often adds a case ending to a placeholder ("Juha" -> "Juhan",
+# "Juhalle", "JUHALLE"). The swap tolerates that: a placeholder matches itself
+# plus a short run of trailing word characters (the ending is dropped on swap).
+# A following word is safe because whitespace/punctuation breaks the run. This
+# does NOT catch a stem change where the placeholder is no longer even a prefix
+# (Finnish "jänis" -> "jäniksen"); that still triggers a keep-retry.
+MAX_ENDING = 12
+
+
+def inflected_re(placeholder: str) -> re.Pattern:
+    """Match ``placeholder`` (any case) plus an optional case ending, at a word start."""
+    return re.compile(rf"(?<!\w)({re.escape(placeholder)})\w{{0,{MAX_ENDING}}}", re.I)
+
 
 def mask(text: str, mask_map: dict[str, str]) -> str:
     """Replace real terms in ``text`` with their placeholders. Longest term first."""
@@ -25,10 +38,28 @@ def leaked_terms(text: str, mask_map: dict[str, str]) -> list[str]:
 
 
 def placeholders_in(text: str, mask_map: dict[str, str]) -> list[str]:
-    """Placeholders present in ``text`` as whole words, any case. An inflected form
-    ("jäniksen" for "jänis") does not count: a whole-word swap would not catch it."""
-    return [ph for ph in mask_map
-            if re.search(rf"(?<!\w){re.escape(ph)}(?!\w)", text, re.I)]
+    """Placeholders present in ``text``, tolerating a lowercase case ending (``inflected_re``).
+    A stem change that drops the placeholder prefix ("jänis" -> "jäniksen") does not count,
+    so it still triggers a keep-retry."""
+    return [ph for ph in mask_map if inflected_re(ph).search(text)]
+
+
+def _shape(sample: str, real: str) -> str:
+    """Give ``real`` the case shape of ``sample`` (the matched placeholder text)."""
+    if sample.isupper() and len(sample) > 1:
+        return real.upper()
+    if sample[:1].islower():
+        return real[:1].lower() + real[1:]
+    return real[:1].upper() + real[1:]
+
+
+def swap_inflected(text: str, mask_map: dict[str, str]) -> str:
+    """Replace each placeholder (and a trailing lowercase case ending) with its real
+    term, dropping the ending and keeping the placeholder's case shape. Longest
+    placeholder first, so a longer one wins over a shorter prefix of it."""
+    for placeholder, real in sorted(mask_map.items(), key=lambda kv: -len(kv[0])):
+        text = inflected_re(placeholder).sub(lambda m: _shape(m.group(1), real), text)
+    return text
 
 
 def keep_instruction(placeholders: Iterable[str]) -> str:
