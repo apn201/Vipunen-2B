@@ -66,16 +66,14 @@ class StepSession:
 
 
 def default_prompt(session: StepSession) -> str:
-    """The prompt the automatic pipeline would use for the current stage."""
+    """The prompt the automatic pipeline sends for the current stage. It must match
+    what auto mode sends, or advanced mode would not reproduce an auto result. Auto
+    keeps insist_word_form off (the keep-the-word instruction suppresses the carrier),
+    so step does not add it either; the operator can still type it in by hand."""
     stage = session.stage
-    if stage is None:
-        return ""
-    if stage.kind == "swap":
-        return ""  # non-LLM; shown read-only
-    prompt = render(stage.template, session.text)
-    if stage.kind == "llm":
-        prompt += joukahainen.keep_instruction(joukahainen.placeholders_in(session.text, session.mask_map))
-    return prompt
+    if stage is None or stage.kind == "swap":
+        return ""  # swap is non-LLM, shown read-only
+    return render(stage.template, session.text)
 
 
 def view(session: StepSession) -> dict:

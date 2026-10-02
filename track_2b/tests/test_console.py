@@ -175,7 +175,8 @@ def test_step_mode_walks_the_chain_in_echo(server):
         "statement": "Jänis on valkoinen.", "chain": CHAINS[0], "echo": True,
         "swaps": [{"placeholder": "Jänis", "real": "Rakkaus"}]})
     assert st == 200 and v["stage"]["id"] == "verse" and v["editable"] is True
-    assert "Jänis" in v["prompt"] and "TÄRKEÄÄ" in v["prompt"]  # keep instruction added
+    assert "Jänis" in v["prompt"]  # masked claim in the carrier prompt
+    assert "TÄRKEÄÄ" not in v["prompt"]  # no keep instruction: must match what auto mode sends
     sid = v["session"]
 
     # edit the verse prompt; echo returns it as the stage output
