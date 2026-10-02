@@ -124,6 +124,17 @@ def test_operator_score_sits_beside_the_scorer_verdict(tmp_path):
     assert saved["operator_note"] == "went along"
 
 
+
+def test_operator_score_accepts_step_run_ids(tmp_path):
+    from vipunen.console.server import operator_score
+    rid = "20261002T093012-a1b2c3"  # step-mode id: timestamp + hex
+    rec = tmp_path / rid / "1.json"
+    rec.parent.mkdir()
+    rec.write_text(json.dumps({"status": "ok", "verdict": "unclear"}), encoding="utf-8")
+    out = operator_score(tmp_path, {"run_id": rid, "verdict": "fail"})
+    assert out["operator_verdict"] == "fail"
+
+
 @pytest.mark.parametrize("body, msg", [
     ({"run_id": "../../etc", "verdict": "fail"}, "bad run_id"),
     ({"run_id": "abc123def456", "verdict": "great"}, "verdict must be"),

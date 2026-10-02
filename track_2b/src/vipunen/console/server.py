@@ -158,7 +158,9 @@ def parse_request(body: dict, chains: list[str]) -> tuple[Seed, dict[str, str], 
     return seed, mask_map, opts
 
 
-RUN_ID = re.compile(r"^[0-9a-f]{6,32}$")
+# Auto runs use a 12-hex id; step runs use "<UTC timestamp>-<hex>". Accept both, but
+# never "." or "/" so the id cannot escape the evidence directory.
+RUN_ID = re.compile(r"^[0-9A-Za-z][0-9A-Za-z-]{5,40}$")
 
 
 def operator_score(evidence_dir: Path, body: dict) -> dict:
