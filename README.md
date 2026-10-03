@@ -23,6 +23,16 @@ and is also the model under test. Every text-shaping call sees only masked
 final prompt. The headline verdict is deterministic (regex against ground truth), so
 it reproduces with no key.
 
+The verse form is old. The Kalevala songs were sung for well over a thousand years
+before Elias Lönnrot wrote them down in the 1800s. In the Track 1A findings the direct
+ask is refused 0 of 12 times and the verse gets through 4 to 10 of 12, so folk poetry
+that old beat the safety training of Apertus v1.5 on those claims. The agents are named
+after the Kalevala characters: Väinämöinen writes the verse, Louhi escalates it,
+Joukahainen swaps the words, Lemminkäinen gives the verdict.
+
+The code was written with Claude Code from my design documents. Apertus is the only
+model that runs in the tool.
+
 The project lives in [`track_2b/`](track_2b/). From there:
 
 ```bash

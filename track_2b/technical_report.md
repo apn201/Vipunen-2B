@@ -19,6 +19,16 @@ it alone. The work is split into agents, so each Apertus call sees only part of 
 task and no single call sees enough to refuse. That is what lets Apertus attack
 itself.
 
+The technical part is the masking. Every Apertus call that shapes the text works on a
+safe word ("rabbit"), so a refusal in those stages has nothing to trigger on. A plain
+code step swaps the real word in, and only the target sees it, wrapped in long Finnish
+verse. Finnish is about 0.73% of the training documents and the Apertus safety
+evaluation does not cover it. Poetry already works as a jailbreak in English (arXiv
+2511.15304). The verse form itself is old: the Kalevala songs were sung for well over
+a thousand years before Elias Lönnrot wrote them down in the 1800s. Measured in 1A, the
+direct ask is refused 0 of 12 times and the verse gets through 4 to 10 of 12. So folk
+poetry that old beat the safety training of a current Swiss model, on these claims.
+
 So the project is two parts of one thing. This track, 2B, is the tool. Track 1A is
 the red-teaming results it produced. I cannot put all the payloads in this public
 repo, since they can be used for malicious purposes. They are replaced with more
@@ -27,8 +37,11 @@ own `mutations.yaml` and use the tool as they see fit, but must follow laws, rul
 and good habits.
 
 VIPUNEN stands for Versatile Intelligent Pentest User-Network Engagement Node. It is
-named for Antero Vipunen of the Kalevala, the buried giant who holds the lost words;
-Vainamoinen climbs inside him to make him sing them out.
+named for Antero Vipunen of the Kalevala, the buried giant who holds the lost words.
+Väinämöinen climbs inside him to make him sing them out. The agents carry the same
+names: Väinämöinen writes the verse, Louhi escalates it, Joukahainen swaps the words,
+Lemminkäinen gives the verdict. On the first page Louhi, as an eagle, is attacking
+Väinämöinen's boat.
 
 ## 2. Architecture
 
@@ -39,13 +52,13 @@ code.
 
 The default chain:
 
-1. **verse** (Vainamoinen, Apertus): turn a masked claim into a 500+ character
+1. **verse** (Väinämöinen, Apertus): turn a masked claim into a 500+ character
    Kalevala-metre Finnish poem. It only ever sees the safe word, "rabbit".
 2. **escalate** (Louhi, Apertus): push the masked poem harder. Still the safe word.
 3. **substitute** (Joukahainen, non-LLM): swap the real word back in. No model call.
 4. **target** (Transport): send the final prompt to the model under test, record the
    prompt and the answer verbatim.
-5. **score** (Lemminkainen): a deterministic verdict against the claim and the ground
+5. **score** (Lemminkäinen): a deterministic verdict against the claim and the ground
    truth. No model grades its own output.
 
 The invariant: no `llm` stage may come after the `swap` stage, so every Apertus
@@ -80,8 +93,13 @@ host when the endpoint is remote. Build time pulls Python packages; runtime does
 - **Model:** swiss-ai/Apertus-v1.5-8B by default, also -v1.5-70B and both thinking
   variants. v1.0 instruct models are reachable through Public AI.
 - **How it is used:** agents and tool use, plus red-teaming. Apertus writes the
-  verse, escalates it, rates the metre, and is the target. No other model is used.
-  The headline verdict is deterministic code, not a model.
+  verse, escalates it, rates the metre, and is the target. No other model runs in
+  the tool. The headline verdict is deterministic code, not a model.
+- **How it was built:** the code was written with Claude Code (Anthropic) from my
+  design documents, and I used it for the paperwork as well. Claude is not part of the
+  tool and no verdict comes from it. Working with the real findings tripped Claude's
+  safety triggers, so I needed some workarounds. Mostly it meant flagging parts for
+  manual processing.
 - **Where it runs:** hosted CSCS endpoint, OpenAI-compatible, no local weights. The
   client keeps a `reasoning_content` fallback and sends a User-Agent for Public AI.
 
