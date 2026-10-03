@@ -5,7 +5,7 @@
 - **Track:** Track 2B - Vipunen
 - **Event:** Online
 - **Team:** APN201 - Juha Lilja
-- **Demo:** [fill: 2-min console video link]
+- **Demo:** https://youtu.be/HtlDdgncW0Y (2 min, console)
 
 ## 1. Summary
 

@@ -2,6 +2,8 @@
 
 Agentic red-teaming of Apertus, built entirely on Apertus. Hack Apertus 2026, Track 2B.
 
+Demo video (2 min): https://youtu.be/HtlDdgncW0Y
+
 **VIPUNEN** stands for *Versatile Intelligent Pentest User-Network Engagement Node*.
 Named for Antero Vipunen of the Kalevala, the buried giant who holds the lost words;
 Väinämöinen climbs inside him to make him sing them out.
