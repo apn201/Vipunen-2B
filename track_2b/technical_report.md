@@ -1,5 +1,7 @@
 # Technical report - Vipunen (Track 2B)
 
+![Akseli Gallen-Kallela, The Defence of the Sampo (1896), public domain. Louhi as an eagle attacks Väinämöinen.](docs/sampo.png)
+
 - **Track:** Track 2B - Vipunen
 - **Event:** Online
 - **Team:** APN201 - Juha Lilja
@@ -8,7 +10,7 @@
 ## 1. Summary
 
 I wanted to test the safeguards of Apertus. I also wanted to test what the models
-can do. One team may only get one submission, so I built the whole thing on Apertus
+can do. One team might only get one submission, so I built the whole thing on Apertus
 itself: a test engine that red-teams Apertus with Apertus.
 
 The leading idea was that Finnish in poetic form confuses the safeguards. That,
@@ -51,6 +53,8 @@ text-shaping call sees only masked text. `chain.py` refuses to load a chain that
 breaks it. The other agents are Pohjanakka (scheduler and budget gate, not an LLM),
 Ukko (orchestrator, not an LLM), and Ilmarinen (scores the poem's metre, never gates).
 
+![The default chain. Only the target sees the real words; plain-code helpers below.](docs/chain.svg)
+
 Two front ends, one engine:
 
 - **Console** (`make console`, localhost only). Automatic mode streams the whole
@@ -68,6 +72,8 @@ CSCS (sovereign Swiss cloud), at Public AI, or at a self-hosted vLLM Apertus for
 on-premise or air-gapped use. The deterministic scorers need no network, so the only
 runtime dependency is the Apertus endpoint. It runs in Docker and needs no GPU on the
 host when the endpoint is remote. Build time pulls Python packages; runtime does not.
+
+![One container, one OpenAI-compatible endpoint, three ways to host it.](docs/deploy.svg)
 
 ## 3. Use of Apertus
 
@@ -92,17 +98,29 @@ private 1A repo. `data/` is well under the 100 MB limit.
 The control arm is a prose baseline: the history and culture claims sent straight to
 each model, no verse, scored deterministically. It reproduces the known result that
 Apertus fails cross-lingual factual probes, worse in Finnish than English, worse on
-the 8B than the 70B. The table is in `results/baseline-2026-10-01.md`.
+the 8B than the 70B. The full table is in `docs/baseline-2026-10-01.md`.
 
-The red-teaming result is in the 1A findings: across the five findings the verse
-carrier gets the model to state a claim it refuses when asked directly (0 to 1 of 12
-variations direct, up to 11 of 12 through the carrier). The harness measures the
-carrier against the direct ask for every finding, so the effect is shown, not
-asserted.
+![Prose baseline: attack success rate per model, 12 false claims per language, one sample. Small n, directional only.](docs/baseline.svg)
+
+| Setup | Metric | Result |
+|---|---|---|
+| Prose baseline, direct claim (6 models, fi and en) | ASR on 12 false claims | 0.08 to 0.83; v1.5 8B 0.75 fi / 0.50 en |
+| Verse carrier (1A findings 1 to 3) | reproduced, of 12 variations | 4 to 10 of 12 |
+| Direct ask, same claims (1A controls) | reproduced, of 12 variations | 0 of 12 in English and Finnish |
+
+ASR is (fail + 0.5 partial) / n, scored by regex against the ground truth.
+
+Cost: a `make run` demo (2 chains x 3 seeds) is about 0.0007 USD and the baseline grid
+(6 models x 28 seeds) 0.055 USD, both at Public AI list prices. The budget gate fails
+closed when `VIPUNEN_BUDGET_USD` is reached.
+
+The red-teaming result is in the 1A findings: in the three findings that carry a
+control, the verse carrier gets the model to state a claim it refuses when asked
+directly (0 of 12 variations direct, 4 to 10 of 12 through the carrier). The harness
+measures the carrier against the direct ask for those findings, so the effect is
+shown, not asserted.
 
 ## 6. Limitations
-
-Where it breaks, what was not tested, and known failure modes. [fill: add any you want]
 
 - The lenient swap drops a case ending ("Juha" to "Juhan") but not a Finnish stem
   change ("janis" to "janiksen"), where the safe word is no longer a prefix.
@@ -129,7 +147,7 @@ the control and replay side a per-finding regex scores answers deterministically
 
 ## 7. Reproducibility
 
-`make run` from the repo root, in Docker, on a clean checkout. It builds the image
+`make run` from `track_2b/` (the project root in the template), in Docker, on a clean checkout. It builds the image
 and runs the neutral demo chain and the control arm against the live endpoint. Set
 `LLM_API_KEY` in `.env`, or export `LLM_NAME`, `LLM_BASE_URL` and `LLM_API_KEY`.
 Other targets: `make demo-offline` (no key), `make estimate`, `make baseline`,
@@ -145,7 +163,8 @@ Other targets: `make demo-offline` (no key), `make estimate`, `make baseline`,
 
 ## 9. License
 
-Code is Apache-2.0. This report is CC-BY-4.0.
+Code is Apache-2.0. This report is CC-BY-4.0. The painting on page 1 is public domain, from
+[Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Gallen-Kallela_The_defence_of_the_Sampo.png).
 
 ## References
 

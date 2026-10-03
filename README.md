@@ -7,7 +7,7 @@ Named for Antero Vipunen of the Kalevala, the buried giant who holds the lost wo
 Väinämöinen climbs inside him to make him sing them out.
 
 I wanted to test the safeguards of Apertus, and also what the models can do. One team
-may only get one submission, so I built the whole thing on Apertus itself. The idea
+might only get one submission, so I built the whole thing on Apertus itself. The idea
 was that Finnish in poetic form confuses the safeguards. That, together with the
 framing on the final prompt, is what found the flaws. The work is split into agents,
 so no single Apertus call sees the whole task and refuses. This track is the tool;

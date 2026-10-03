@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 236" width="760" height="236" font-family="Helvetica, Arial, sans-serif">
+  <style>
+    .box { fill: #ffffff; stroke: #5d6a70; stroke-width: 1; }
+    .llm { fill: #f9ecd4; stroke: #bd9171; stroke-width: 1.5; }
+    .tgt { fill: #f3dcd2; stroke: #8a3b26; stroke-width: 1.5; }
+    .help { fill: #ffffff; stroke: #5d6a70; stroke-width: 1; stroke-dasharray: 4 3; }
+    .t { font-size: 14px; fill: #201519; font-family: Georgia, serif; }
+    .n { font-size: 11px; fill: #8a3b26; font-style: italic; font-family: Georgia, serif; }
+    .s { font-size: 11px; fill: #55554f; }
+    .a { stroke: #5d6a70; stroke-width: 1.5; fill: none; marker-end: url(#arr); }
+    .d { stroke: #bd9171; stroke-width: 1; fill: none; stroke-dasharray: 3 3; }
+    .k { font-size: 11px; fill: #55554f; }
+    .inv { font-size: 11px; fill: #8a3b26; }
+  </style>
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5d6a70"/>
+    </marker>
+  </defs>
+
+  <rect class="box" x="4" y="10" width="130" height="92" rx="6"/>
+  <text class="t" x="69" y="34" text-anchor="middle">Claim</text>
+  <text class="n" x="69" y="50" text-anchor="middle">operator / seed file</text>
+  <text class="s" x="69" y="70" text-anchor="middle">real word masked</text>
+  <text class="s" x="69" y="84" text-anchor="middle">as "rabbit"</text>
+
+  <rect class="llm" x="160" y="10" width="130" height="92" rx="6"/>
+  <text class="t" x="225" y="34" text-anchor="middle">verse</text>
+  <text class="n" x="225" y="50" text-anchor="middle">Väinämöinen, llm</text>
+  <text class="s" x="225" y="70" text-anchor="middle">Kalevala-metre</text>
+  <text class="s" x="225" y="84" text-anchor="middle">Finnish poem</text>
+
+  <rect class="llm" x="316" y="10" width="130" height="92" rx="6"/>
+  <text class="t" x="381" y="34" text-anchor="middle">escalate</text>
+  <text class="n" x="381" y="50" text-anchor="middle">Louhi, llm</text>
+  <text class="s" x="381" y="70" text-anchor="middle">pushes the poem</text>
+  <text class="s" x="381" y="84" text-anchor="middle">harder, masked</text>
+
+  <rect class="box" x="472" y="10" width="130" height="92" rx="6"/>
+  <text class="t" x="537" y="34" text-anchor="middle">substitute</text>
+  <text class="n" x="537" y="50" text-anchor="middle">Joukahainen, swap</text>
+  <text class="s" x="537" y="70" text-anchor="middle">real word back in,</text>
+  <text class="s" x="537" y="84" text-anchor="middle">no model call</text>
+
+  <rect class="tgt" x="628" y="10" width="128" height="92" rx="6"/>
+  <text class="t" x="692" y="34" text-anchor="middle">target</text>
+  <text class="n" x="692" y="50" text-anchor="middle">Transport</text>
+  <text class="s" x="692" y="70" text-anchor="middle">model under test,</text>
+  <text class="s" x="692" y="84" text-anchor="middle">verbatim record</text>
+
+  <path class="a" d="M134,56 L158,56"/>
+  <path class="a" d="M290,56 L314,56"/>
+  <path class="a" d="M446,56 L470,56"/>
+  <path class="a" d="M602,56 L626,56"/>
+
+  <path class="d" d="M459,4 L459,110"/>
+  <text class="inv" x="459" y="124" text-anchor="middle">invariant: no llm stage after the swap (chain.py refuses the config)</text>
+
+  <rect class="tgt" x="628" y="140" width="128" height="56" rx="6"/>
+  <text class="t" x="692" y="162" text-anchor="middle">score</text>
+  <text class="n" x="692" y="178" text-anchor="middle">Lemminkäinen, regex</text>
+  <path class="a" d="M692,102 L692,138"/>
+
+  <rect class="help" x="4" y="140" width="190" height="56" rx="6"/>
+  <text class="t" x="99" y="162" text-anchor="middle">Ukko</text>
+  <text class="s" x="99" y="180" text-anchor="middle">orchestrator, masks the claim</text>
+  <rect class="help" x="210" y="140" width="190" height="56" rx="6"/>
+  <text class="t" x="305" y="162" text-anchor="middle">Pohjanakka</text>
+  <text class="s" x="305" y="180" text-anchor="middle">scheduler and budget gate</text>
+  <rect class="help" x="416" y="140" width="190" height="56" rx="6"/>
+  <text class="t" x="511" y="162" text-anchor="middle">Ilmarinen</text>
+  <text class="s" x="511" y="180" text-anchor="middle">scores the metre, never gates</text>
+
+  <rect x="4" y="214" width="12" height="12" class="llm"/>
+  <text class="k" x="22" y="224">Apertus call on masked text only</text>
+  <rect x="236" y="214" width="12" height="12" class="tgt"/>
+  <text class="k" x="254" y="224">Apertus under test / verdict</text>
+  <rect x="440" y="214" width="12" height="12" class="help"/>
+  <text class="k" x="458" y="224">plain code, no model</text>
+</svg>
